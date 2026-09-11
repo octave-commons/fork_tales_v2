@@ -313,7 +313,8 @@
   "Compare media and metadata manifest entries with supplied
   :track/discovered events, keyed by dataset-relative path with one
   historical leading `tracks/` stripped. Songbook text has no track events
-  and is excluded here; JSON metadata events are included."
+  and is excluded here; JSON metadata events are included. Full SHA-256 takes
+  precedence; legacy SHA-8 receipts compare the first eight hash characters."
   [root events]
   (let [manifest (read-manifest root)
         checkable? (fn [entry]
@@ -337,9 +338,14 @@
         hash-drift (->> events-by-path
                         (keep (fn [[path event]]
                                 (when-let [entry (manifest-by-path path)]
-                                  (when (and (contains? event :sha256)
-                                             (not= (:sha256 event) (:sha256 entry)))
-                                    {:path path :expected (:sha256 event) :actual (:sha256 entry)}))))
+                                  (let [hash-key (cond (contains? event :sha256) :sha256
+                                                       (contains? event :sha8) :sha8)
+                                        expected (get event hash-key)
+                                        actual (if (= :sha8 hash-key)
+                                                 (subs (:sha256 entry) 0 8)
+                                                 (:sha256 entry))]
+                                    (when (and hash-key (not= expected actual))
+                                      {:path path :expected expected :actual actual})))))
                         (sort-by :path)
                         vec)]
     {:untracked-in-ledger untracked

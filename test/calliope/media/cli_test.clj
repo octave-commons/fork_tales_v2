@@ -50,17 +50,21 @@
             (is (not (.exists log)) (str change " must not invoke rclone")))
           (Files/deleteIfExists (.toPath log)))
         (testing "ledger hashes reject a regenerated, same-size change"
+         (doseq [hash-key [:sha256 :sha8]]
           (fixture/dataset! root)
           (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/one.mp3")
                 ledger (File. repo "ledgers/ingest.edn")]
             (.mkdirs (.getParentFile ledger))
             (spit ledger (pr-str {:event/type :track/discovered :asset :mp3
                                  :dest "tracks/absence/one.mp3"
-                                 :bytes (:bytes entry) :sha256 (:sha256 entry)}))
+                                 :bytes (:bytes entry)
+                                 hash-key (if (= :sha8 hash-key)
+                                            (subs (:sha256 entry) 0 8)
+                                            (:sha256 entry))}))
             (is (zero? (:exit (run! "verify" "--ledger"))))
             (spit (File. root "absence/one.mp3") "hullo")
             (dataset/generate-manifest! root)
             (let [result (run! "verify" "--ledger")]
               (is (not (zero? (:exit result))))
-              (is (re-find #":hash-drift" (:out result)))))))
+              (is (re-find #":hash-drift" (:out result))))))))
       (finally (fixture/delete-tree! repo)))))

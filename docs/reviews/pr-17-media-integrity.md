@@ -4,6 +4,9 @@ Reviewed parent: `ba72dd3be4c85d91b2d0250698eff52b21a77af9`.
 Date: 2026-09-11. Harness: ChatGPT Work sandbox with the GitHub connector.
 
 All five CodeRabbit findings reproduce in the original implementation.
+The subsequent Codex review of `99990d7` found that historical receipts need
+their SHA-8 prefixes compared as well; all 1,909 committed track events use
+that legacy field, and none carries a full SHA-256.
 
 | Finding | Correction | Regression evidence |
 |---|---|---|
@@ -12,6 +15,7 @@ All five CodeRabbit findings reproduce in the original implementation.
 | Reader accepts invalid manifests | Validate closed envelope and entries, dataset identity, count, total bytes, unique paths, and exactly one EDN form per line | Missing fields, invalid hashes and sizes, wrong identity, empty entries, duplicate paths, and trailing forms are rejected |
 | Manifest paths escape the root | Reject traversal and non-POSIX paths; compare canonical paths by path components before reading or hashing | Absolute, dot, parent, Windows-style, and sibling-prefix symlink escape tests |
 | Ledger verification ignores full hashes | Report `:hash-drift` and make CLI ledger verification fail | Regenerate the manifest after a same-size content change; current bytes pass manifest verification but fail the historical hash check |
+| Historical SHA-8 receipts bypass hash checks | Compare full SHA-256 when present, otherwise the recorded SHA-8 prefix | JVM and real CLI regressions cover both formats and full-hash precedence; the committed manifest/ledger comparison has zero drift |
 
 The runtime and Malli law share dependency-free path and hash predicates.
 Reader validation stays available to Babashka without requiring Malli. Scanner
@@ -21,7 +25,7 @@ rejects destination links that would overwrite source lyrics.
 
 ## Verification
 
-- `clojure -M:test`: 96 tests, 433 assertions, zero failures and errors.
+- `clojure -M:test`: 97 tests, 440 assertions, zero failures and errors.
 - `clj-kondo --lint src/calliope/media src/calliope/law/media.cljc test/calliope/media test/calliope/law/media_test.clj test/calliope/test_runner.clj scripts/media.clj`: zero errors and warnings.
 - JVM AOT compilation succeeded for `calliope.media.manifest`,
   `calliope.media.dataset`, and `calliope.law.media`.
@@ -29,6 +33,9 @@ rejects destination links that would overwrite source lyrics.
   4,440,988,097 declared bytes. This is metadata validation, not verification of
   absent media bytes.
 - `clojure -M:classify -- --seed 3721599729 --dry-run`: exit 0.
+- The committed manifest agrees with all 1,909 historical track receipts:
+  zero untracked entries, missing entries, byte drift, or hash-prefix drift.
+  This compares recorded metadata; it does not assert the external bytes are present.
 - Replaying the new dataset/CLI regressions against the original implementation
   produced 38 failures and zero errors across 12 tests and 75 assertions.
 - Repository Contracts installs Babashka for the real CLI tests and now triggers

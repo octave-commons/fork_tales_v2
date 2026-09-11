@@ -225,3 +225,21 @@
                  :actual (:sha256 (dataset/entry-for (dataset/read-manifest root) "absence/one.mp3"))}]
                (:hash-drift report))))
       (is (empty? (:hash-drift (dataset/verify-against-ledger root [(dissoc event :sha256)])))))))
+
+(deftest ledger-verification-checks-legacy-sha8-with-full-hash-precedence
+  (with-dataset [root]
+    (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/one.mp3")
+          prefix (subs (:sha256 entry) 0 8)
+          event {:event/type :track/discovered :asset :mp3 :dest "tracks/absence/one.mp3"
+                 :bytes (:bytes entry) :sha8 prefix}]
+      (is (empty? (:hash-drift (dataset/verify-against-ledger root [event]))))
+      (is (empty? (:hash-drift (dataset/verify-against-ledger
+                               root [(assoc event :sha256 (:sha256 entry) :sha8 "wrong")]))))
+      (write-bytes! root "absence/one.mp3" (.getBytes "hullo" "UTF-8"))
+      (dataset/generate-manifest! root)
+      (let [report (dataset/verify-against-ledger root [event])]
+        (is (empty? (:bytes-drift report)))
+        (is (= [{:path "absence/one.mp3" :expected prefix
+                 :actual (subs (:sha256 (dataset/entry-for (dataset/read-manifest root)
+                                                         "absence/one.mp3")) 0 8)}]
+               (:hash-drift report)))))))
