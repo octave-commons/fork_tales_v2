@@ -270,3 +270,39 @@
       (write-bytes! root "absence/2cf24dba.mp3" (.getBytes "hullo" "UTF-8"))
       (is (thrown? clojure.lang.ExceptionInfo (dataset/generate-manifest! root)))
       (is (= before (slurp (dataset/manifest-path root)))))))
+
+(deftest ledger-verification-retains-every-historical-receipt
+  (with-dataset [root]
+    (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/2cf24dba.mp3")
+          good {:event/type :track/discovered :event/id "later" :asset :mp3
+                :dest "absence/2cf24dba.mp3" :bytes 5 :sha256 (:sha256 entry)}
+          bad (assoc good :event/id "earlier" :bytes 1
+                     :sha256 (str "2cf24dba" (apply str (repeat 56 "0"))))
+          legacy (-> good (dissoc :sha256) (assoc :event/id "legacy" :sha8 "00000000"))
+          report (dataset/verify-against-ledger root [bad legacy good])]
+      (is (= 1 (count (:bytes-drift report))))
+      (is (= ["earlier" "legacy"] (mapv :event/id (:hash-drift report))))
+      (is (= report (dataset/verify-against-ledger root [good legacy bad])))
+      (is (empty? (:hash-drift (dataset/verify-against-ledger root [good good])))))))
+
+(deftest manifest-writes-reject-symlinks-and-replace-hardlinks
+  (doseq [link-kind [:symlink :hardlink]]
+    (with-dataset [root]
+      (let [outside (temp-dir)
+            victim (File. outside "unrelated.txt")
+            manifest (File. (dataset/manifest-path root))]
+        (try
+          (spit victim "unrelated")
+          (Files/delete (.toPath manifest))
+          (if (= :symlink link-kind)
+            (Files/createSymbolicLink (.toPath manifest) (.toPath victim)
+                                      (make-array java.nio.file.attribute.FileAttribute 0))
+            (Files/createLink (.toPath manifest) (.toPath victim)))
+          (if (= :symlink link-kind)
+            (is (thrown? clojure.lang.ExceptionInfo (dataset/generate-manifest! root)))
+            (do (dataset/generate-manifest! root)
+                (is (= 3 (count (:entries (dataset/read-manifest root)))))))
+          (is (= "unrelated" (slurp victim)))
+          (finally
+            (Files/deleteIfExists (.toPath manifest))
+            (delete-tree! outside)))))))

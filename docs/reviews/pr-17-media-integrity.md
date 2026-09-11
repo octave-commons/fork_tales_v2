@@ -20,6 +20,8 @@ that legacy field, and none carries a full SHA-256.
 | Ingestion trusts an existing destination | Verify copied or existing bytes before returning discovery receipt data | Actual `tracks!` execution accepts intact existing files, fails on truncation or same-size corruption, and appends no discovery event for the conflict |
 | Manifest paths ignore content-addressed names | Require MP3/JPEG/JSON basenames to equal the SHA-256 prefix; text retains readable filenames | Reader and Malli reject mismatched/friendly media basenames; regeneration after corruption fails and preserves the previous manifest |
 | Ingestion follows slug-directory links | Reuse assembly's component-by-component write guard through `store-asset!` | Actual Babashka track ingestion rejects directory and file aliases, preserving unrelated files and the historical ledger prefix |
+| Later receipts conceal historical contradictions | Compare every receipt, preserving event IDs in sorted drift diagnostics | Both receipt orders produce the same failures; repeated matching receipts remain valid; the real CLI rejects earlier contradictions |
+| Manifest generation follows aliases | Guard the manifest destination and replace it from a temporary file | JVM and CLI symlink tests preserve outside files; replacing a hard-linked manifest preserves the other link's contents |
 
 The runtime and Malli law share dependency-free path and hash predicates.
 Reader validation stays available to Babashka without requiring Malli. Scanner
@@ -29,7 +31,7 @@ rejects all symlinked write destinations and source/destination overlap.
 
 ## Verification
 
-- `clojure -M:test`: 101 tests, 504 assertions, zero failures and errors.
+- `clojure -M:test`: 103 tests, 516 assertions, zero failures and errors.
 - `clj-kondo --lint src/calliope/media src/calliope/law/media.cljc test/calliope/media test/calliope/law/media_test.clj test/calliope/test_runner.clj scripts/media.clj`: zero errors and warnings.
 - `clj-kondo --lint scripts/corpus.clj`: zero errors and warnings. Scripts are
   linted separately because they deliberately share the standalone `user` namespace.

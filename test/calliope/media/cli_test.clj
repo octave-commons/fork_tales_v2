@@ -77,6 +77,26 @@
             (is (not (zero? (:exit (run! "manifest")))))
             (is (= before (slurp (dataset/manifest-path root))))
             (is (not (zero? (:exit (run! "sync" "--remote" "fixture:media")))))))
+        (testing "a later receipt cannot conceal an earlier contradiction"
+          (fixture/dataset! root)
+          (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/2cf24dba.mp3")
+                good {:event/type :track/discovered :event/id "later" :asset :mp3
+                      :dest "absence/2cf24dba.mp3" :bytes 5 :sha256 (:sha256 entry)}
+                bad (assoc good :event/id "earlier" :bytes 1)]
+            (spit (File. repo "ledgers/ingest.edn") (str (pr-str bad) "\n" (pr-str good) "\n"))
+            (let [result (run! "verify" "--ledger")]
+              (is (not (zero? (:exit result))))
+              (is (re-find #"earlier" (:out result))))))
+        (testing "the manifest command cannot follow an outside symlink"
+          (let [manifest (File. (dataset/manifest-path root))
+                victim (File. repo "unrelated.txt")]
+            (spit victim "unrelated")
+            (Files/delete (.toPath manifest))
+            (Files/createSymbolicLink (.toPath manifest) (.toPath victim)
+                                      (make-array java.nio.file.attribute.FileAttribute 0))
+            (is (not (zero? (:exit (run! "manifest")))))
+            (is (= "unrelated" (slurp victim)))
+            (Files/delete (.toPath manifest))))
         (testing "Babashka assembly rejects an in-root media alias"
           (let [lyrics (File. repo "docs/lyrics")
                 copy (File. root "text/a.txt")

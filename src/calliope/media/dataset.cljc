@@ -275,11 +275,12 @@
 
 #?(:clj
    (defn write-manifest!
-     "Scan `root` and write its deterministic line-oriented manifest."
+     "Scan `root` and replace its manifest without following destination aliases."
      [root {:keys [generated]}]
-     (let [entries (scan-entries root)
+     (let [target (resolve-write-file root manifest-name)
+           path (str target)
+           entries (scan-entries root)
            bytes-total (reduce + 0 (map :bytes entries))
-           path (manifest-path root)
            envelope {:dataset/id dataset-id
                      :schema manifest-schema
                      :entries (count entries)
@@ -287,7 +288,12 @@
                      :generated generated}]
        (when-not (and (manifest/envelope? envelope) (every? manifest/entry? entries))
          (throw (ex-info "Cannot write invalid or empty media manifest" {:path path})))
-       (spit path (str (str/join "\n" (map pr-str (cons envelope entries))) "\n"))
+       (let [temp (Files/createTempFile (.toPath (.getParentFile target)) ".manifest-" ".edn"
+                                         (make-array java.nio.file.attribute.FileAttribute 0))]
+         (try
+           (spit (.toFile temp) (str (str/join "\n" (map pr-str (cons envelope entries))) "\n"))
+           (Files/move temp (.toPath target) (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))
+           (finally (Files/deleteIfExists temp))))
        {:entries (count entries) :bytes-total bytes-total :path path}))
    :cljs
    (defn write-manifest! [& _]
@@ -350,28 +356,32 @@
   :track/discovered events, keyed by dataset-relative path with one
   historical leading `tracks/` stripped. Songbook text has no track events
   and is excluded here; JSON metadata events are included. Full SHA-256 takes
-  precedence; legacy SHA-8 receipts compare the first eight hash characters."
+  precedence; legacy SHA-8 receipts compare the first eight hash characters.
+  Every historical receipt is checked, including repeated destinations."
   [root events]
   (let [manifest (read-manifest root)
         checkable? (fn [entry]
                      (contains? ledger-checkable-extensions (extension (:path entry))))
         entries (filter checkable? (:entries manifest))
         manifest-by-path (into {} (map (juxt :path identity)) entries)
-        events-by-path (into {}
-                             (map (fn [event] [(normalize-dest (:dest event)) event]))
-                             (filter #(and (= :track/discovered (:event/type %))
-                                           (contains? #{:mp3 :jpeg :json} (:asset %)))
-                                     events))
-        untracked (->> entries (map :path) (remove events-by-path) vec)
-        missing (->> (keys events-by-path) (remove manifest-by-path) sort vec)
-        drift (->> events-by-path
+        receipts (mapv (fn [event] [(normalize-dest (:dest event)) event])
+                       (filter #(and (= :track/discovered (:event/type %))
+                                     (contains? #{:mp3 :jpeg :json} (:asset %))) events))
+        ledger-paths (set (map first receipts))
+        record-drift (fn [path event expected actual]
+                       (cond-> {:path path :expected expected :actual actual}
+                         (:event/id event) (assoc :event/id (:event/id event))))
+        drift-order (juxt :path #(pr-str (:event/id %)) #(pr-str (:expected %)) #(pr-str (:actual %)))
+        untracked (->> entries (map :path) (remove ledger-paths) vec)
+        missing (->> ledger-paths (remove manifest-by-path) sort vec)
+        drift (->> receipts
                    (keep (fn [[path event]]
                            (when-let [entry (manifest-by-path path)]
                              (when (not= (:bytes event) (:bytes entry))
-                               {:path path :expected (:bytes event) :actual (:bytes entry)}))))
-                   (sort-by :path)
+                               (record-drift path event (:bytes event) (:bytes entry))))))
+                   (sort-by drift-order)
                    vec)
-        hash-drift (->> events-by-path
+        hash-drift (->> receipts
                         (keep (fn [[path event]]
                                 (when-let [entry (manifest-by-path path)]
                                   (let [hash-key (cond (contains? event :sha256) :sha256
@@ -381,8 +391,8 @@
                                                  (subs (:sha256 entry) 0 8)
                                                  (:sha256 entry))]
                                     (when (and hash-key (not= expected actual))
-                                      {:path path :expected expected :actual actual})))))
-                        (sort-by :path)
+                                      (record-drift path event expected actual))))))
+                        (sort-by drift-order)
                         vec)]
     {:untracked-in-ledger untracked
      :missing-from-manifest missing
