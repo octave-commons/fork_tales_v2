@@ -4,6 +4,7 @@
             [calliope.media.dataset-test :as fixture]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]])
   (:import [java.io File]
            [java.nio.file Files]))
@@ -31,18 +32,25 @@
                    (apply shell/sh "bb" "--classpath" source (str script)
                           (concat args [:dir repo :env env])))
             pristine (slurp (dataset/manifest-path root))]
+        (testing "missing and unknown commands fail; explicit help succeeds"
+          (is (not (zero? (:exit (run!)))))
+          (is (not (zero? (:exit (run! "verfiy")))))
+          (is (zero? (:exit (run! "--help"))))
+          (is (not (.exists log))))
         (testing "intact files reach rclone"
           (let [result (run! "sync" "--remote" "fixture:media")]
             (is (zero? (:exit result)) (pr-str result))
             (is (.exists log)))
           (Files/deleteIfExists (.toPath log)))
-        (doseq [change [:missing :size :hash :manifest]]
+        (doseq [change [:missing :size :hash :manifest :timestamp]]
           (fixture/dataset! root)
           (spit (dataset/manifest-path root) pristine)
           (case change
             :missing (Files/delete (.toPath (File. root "absence/2cf24dba.mp3")))
             :size (spit (File. root "absence/2cf24dba.mp3") "x")
             :hash (spit (File. root "absence/2cf24dba.mp3") "hullo")
+            :timestamp (spit (dataset/manifest-path root)
+                             (str/replace pristine "2026-08-26T00:00:00Z" "now"))
             :manifest (spit (dataset/manifest-path root)
                             "{:schema :calliope.media/manifest-v1 :entries 0}\n"))
           (let [result (run! "sync" "--remote" "fixture:media")]

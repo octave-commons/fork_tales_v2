@@ -111,6 +111,34 @@
           (is (= (dataset/read-manifest root) (dataset/read-manifest tracked))))
         (finally (delete-tree! repo))))))
 
+(deftest projection-replacement-preserves-posix-readable-modes
+  (with-dataset [root]
+    (when (contains? (.supportedFileAttributeViews (.getFileSystem (.toPath (File. root)))) "posix")
+      (let [repo (temp-dir)
+            tracked (str repo "/tracks")
+            control (File. repo "ordinary-file")
+            source-json (File. root "absence/ea3bd73e.json")
+            target-json (File. tracked "absence/ea3bd73e.json")
+            target-manifest (File. tracked dataset/manifest-name)
+            permissions #(Files/getPosixFilePermissions (.toPath ^File %) (make-array java.nio.file.LinkOption 0))
+            shared (java.nio.file.attribute.PosixFilePermissions/fromString "rw-r-----")]
+        (try
+          (spit control "ordinary creation honors the process umask")
+          (Files/setPosixFilePermissions (.toPath source-json)
+                                         (java.nio.file.attribute.PosixFilePermissions/fromString "rw-------"))
+          (dataset/mirror-metadata! repo root)
+          (is (= (permissions control) (permissions target-json)))
+          (is (= (permissions control) (permissions target-manifest)))
+          (Files/setPosixFilePermissions (.toPath target-json) shared)
+          (Files/setPosixFilePermissions (.toPath target-manifest) shared)
+          (dataset/mirror-metadata! repo root)
+          (is (= shared (permissions target-json)))
+          (is (= shared (permissions target-manifest)))
+          (Files/setPosixFilePermissions (.toPath (File. root dataset/manifest-name)) shared)
+          (dataset/generate-manifest! root)
+          (is (= shared (permissions (File. root dataset/manifest-name))))
+          (finally (delete-tree! repo)))))))
+
 (deftest ledger-verification-checks-media-and-metadata-events
   (with-dataset [root]
     (let [report (dataset/verify-against-ledger
@@ -137,7 +165,7 @@
         (is (= "# A" (slurp (dataset/resolve-file root "text/a.md"))))
         (is (= "B" (slurp (dataset/resolve-file root "text/b.txt"))))
         (is (not (.exists (dataset/resolve-file root "text/index.edn"))))
-        (dataset/write-manifest! root {:generated "t"})
+        (dataset/write-manifest! root {:generated "2026-08-26T00:00:00Z"})
         (is (= #{"text/a.md" "text/b.txt"}
                (set (filter #(re-find #"^text/" %)
                             (map :path (:entries (dataset/read-manifest root))))))))
@@ -200,6 +228,8 @@
                        (dissoc envelope :bytes-total)
                        (assoc envelope :bytes-total 13)
                        (assoc envelope :generated nil)
+                       (assoc envelope :generated "now")
+                       (assoc envelope :generated "2026-02-30T00:00:00Z")
                        (assoc envelope :unknown true)]]
         (write-forms! root (cons invalid entries))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"line 1"

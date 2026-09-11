@@ -11,7 +11,7 @@
     [:schema [:= :calliope.media/manifest-v1]]
     [:entries [:int {:min 1}]]
     [:bytes-total [:int {:min 0}]]
-    [:generated :string]]
+    [:generated [:fn manifest/timestamp?]]]
 
    :calliope.media/manifest-entry-v1
     [:and [:map {:closed true}
@@ -26,7 +26,7 @@
     [:schema [:= :calliope.media/manifest-v1]]
     [:entries [:vector {:min 1} [:ref :calliope.media/manifest-entry-v1]]]
     [:bytes-total {:optional true} [:int {:min 0}]]
-    [:generated :string]]})
+    [:generated [:fn manifest/timestamp?]]]})
 
 (def malli-registry
   (mr/composite-registry m/default-registry registry))

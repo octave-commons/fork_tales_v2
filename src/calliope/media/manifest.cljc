@@ -1,11 +1,23 @@
 (ns calliope.media.manifest
   "Dependency-free manifest predicates shared by filesystem readers and Malli laws."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            #?(:cljs [cljs.reader :as reader])))
 
 (def dataset-id "calliope-media")
 (def schema :calliope.media/manifest-v1)
 (def content-path-pattern #"\.(mp3|jpeg|json|md|txt)$")
 (def sha256-pattern #"^[0-9a-f]{64}$")
+
+(defn timestamp?
+  "True for an ISO-8601 date-time with seconds and an explicit UTC offset."
+  [value]
+  (and (string? value)
+       (boolean (re-matches #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})" value))
+       (try
+         #?(:clj (java.time.Instant/parse value)
+            :cljs (reader/parse-timestamp value))
+         true
+         (catch #?(:clj java.time.DateTimeException :cljs :default) _ false))))
 
 (defn relative-path?
   "True for a non-empty POSIX relative path without traversal or control characters."
@@ -29,7 +41,7 @@
        (= schema (:schema value))
        (int? (:entries value)) (pos? (:entries value))
        (int? (:bytes-total value)) (<= 0 (:bytes-total value))
-       (string? (:generated value))))
+       (timestamp? (:generated value))))
 
 (defn addressed-entry?
   "Media and metadata basenames carry their SHA-8; songbook text keeps its name."

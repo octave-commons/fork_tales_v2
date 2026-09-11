@@ -141,4 +141,5 @@
     "verify" (verify! args)
     "sync" (sync! args)
     "check" (check! args)
-    (usage)))
+    ("help" "--help" "-h") (usage)
+    (do (usage) (System/exit 1))))

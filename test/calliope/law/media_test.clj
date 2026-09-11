@@ -15,6 +15,20 @@
    :bytes 5
    :sha256 (apply str (repeat 64 "a"))})
 
+(deftest generated-timestamps-are-real-instants
+  (doseq [[value expected] [["2026-09-11T23:00:00Z" true]
+                            ["2024-02-29T23:00:00.123456789Z" true]
+                            ["2026-09-11T23:00:00+02:00" true]
+                            ["" false] ["now" false] [nil false]
+                            ["2026-02-29T00:00:00Z" false]
+                            ["2026-09-11T25:00:00Z" false]
+                            ["2026-09-11T00:00:00" false]
+                            ["2026-09-11" false]]]
+    (is (= expected (manifest/timestamp? value)) (pr-str value))
+    (is (= expected (manifest/envelope? (assoc envelope :generated value))))
+    (is (= expected (media/valid? :calliope.media/manifest-envelope-v1 (assoc envelope :generated value))))
+    (is (= expected (media/valid? (assoc envelope :entries [entry] :generated value))))))
+
 (deftest media-manifest-contracts-accept-valid-data
   (is (media/valid? :calliope.media/manifest-envelope-v1 envelope))
   (is (media/valid? :calliope.media/manifest-entry-v1 entry))

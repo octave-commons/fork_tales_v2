@@ -10,7 +10,8 @@
             [clojure.string :as str])
   #?(:clj (:import [java.io BufferedInputStream BufferedReader File FileInputStream InputStreamReader PushbackReader StringReader]
                    [java.math BigInteger]
-                   [java.nio.file CopyOption Files FileVisitOption Path StandardCopyOption]
+                   [java.nio.file CopyOption Files FileVisitOption LinkOption Path StandardCopyOption]
+                   [java.nio.file.attribute FileAttribute PosixFilePermissions]
                    [java.security MessageDigest]
                    [java.time Instant])))
 
@@ -275,12 +276,23 @@
 
 #?(:clj
    (defn- replace-file! [^File target write-temp!]
-     (let [temp (Files/createTempFile (.toPath (.getParentFile target)) ".projection-" ".tmp"
-                                      (make-array java.nio.file.attribute.FileAttribute 0))]
+     (let [target-path (.toPath target)
+           posix? (contains? (.supportedFileAttributeViews (.getFileSystem target-path)) "posix")
+           attrs (into-array FileAttribute
+                             (when posix?
+                               [(PosixFilePermissions/asFileAttribute
+                                 (PosixFilePermissions/fromString "rw-r--r--"))]))
+           temp (Files/createTempFile (.toPath (.getParentFile target)) ".projection-" ".tmp" attrs)]
        (try
-         (write-temp! (.toFile temp))
-         (Files/move temp (.toPath target)
-                     (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING StandardCopyOption/ATOMIC_MOVE]))
+         (let [permissions (when posix?
+                             (Files/getPosixFilePermissions (if (.exists target) target-path temp)
+                                                            (make-array LinkOption 0)))]
+           (write-temp! (.toFile temp))
+           ;; Copying can transfer source permissions, so restore the target's mode
+           ;; after writing. New targets use ordinary readable creation modes/umask.
+           (when permissions (Files/setPosixFilePermissions temp permissions))
+           (Files/move temp target-path
+                       (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING StandardCopyOption/ATOMIC_MOVE])))
          (finally (Files/deleteIfExists temp))))))
 
 #?(:clj
