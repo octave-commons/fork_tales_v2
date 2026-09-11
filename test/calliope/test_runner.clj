@@ -7,6 +7,7 @@
             [calliope.law.media-test]
             [calliope.media.dataset-test]
             [calliope.media.cli-test]
+            [calliope.media.ingestion-test]
             [calliope.reconstruction.handoff-test]
             [calliope.reconstruction.paths-test]))
 
@@ -20,6 +21,7 @@
                          'calliope.law.media-test
                          'calliope.media.dataset-test
                          'calliope.media.cli-test
+                         'calliope.media.ingestion-test
                         'calliope.reconstruction.handoff-test
                         'calliope.reconstruction.paths-test)]
     (shutdown-agents)

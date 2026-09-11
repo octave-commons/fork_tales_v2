@@ -14,9 +14,12 @@ that legacy field, and none carries a full SHA-256.
 | Assembly retains deleted songbook files | Remove obsolete supported text copies after copying current sources | Delete Markdown and text sources between assembly runs; verify remaining contents and regenerated manifest |
 | Reader accepts invalid manifests | Validate closed envelope and entries, dataset identity, count, total bytes, unique paths, and exactly one EDN form per line | Missing fields, invalid hashes and sizes, wrong identity, empty entries, duplicate paths, and trailing forms are rejected |
 | Manifest paths escape the root | Reject traversal and non-POSIX paths; compare canonical paths by path components before reading or hashing | Absolute, dot, parent, Windows-style, and sibling-prefix symlink escape tests |
-| Ledger verification ignores full hashes | Report `:hash-drift` and make CLI ledger verification fail | Regenerate the manifest after a same-size content change; current bytes pass manifest verification but fail the historical hash check |
+| Ledger verification ignores full hashes | Report `:hash-drift` and make CLI ledger verification fail | Contradictory receipts fail on JVM and CLI; full-hash differences are detected even when the SHA-8 prefix matches |
 | Historical SHA-8 receipts bypass hash checks | Compare full SHA-256 when present, otherwise the recorded SHA-8 prefix | JVM and real CLI regressions cover both formats and full-hash precedence; the committed manifest/ledger comparison has zero drift |
 | Assembly follows an in-root destination symlink | Reject every symlink component beneath the selected root before copying | JVM tests cover file and directory links; the real Babashka CLI rejects a songbook path linked to an unrelated MP3 without altering it |
+| Ingestion trusts an existing destination | Verify copied or existing bytes before returning discovery receipt data | Actual `tracks!` execution accepts intact existing files, fails on truncation or same-size corruption, and appends no discovery event for the conflict |
+| Manifest paths ignore content-addressed names | Require MP3/JPEG/JSON basenames to equal the SHA-256 prefix; text retains readable filenames | Reader and Malli reject mismatched/friendly media basenames; regeneration after corruption fails and preserves the previous manifest |
+| Ingestion follows slug-directory links | Reuse assembly's component-by-component write guard through `store-asset!` | Actual Babashka track ingestion rejects directory and file aliases, preserving unrelated files and the historical ledger prefix |
 
 The runtime and Malli law share dependency-free path and hash predicates.
 Reader validation stays available to Babashka without requiring Malli. Scanner
@@ -26,8 +29,10 @@ rejects all symlinked write destinations and source/destination overlap.
 
 ## Verification
 
-- `clojure -M:test`: 98 tests, 448 assertions, zero failures and errors.
+- `clojure -M:test`: 101 tests, 504 assertions, zero failures and errors.
 - `clj-kondo --lint src/calliope/media src/calliope/law/media.cljc test/calliope/media test/calliope/law/media_test.clj test/calliope/test_runner.clj scripts/media.clj`: zero errors and warnings.
+- `clj-kondo --lint scripts/corpus.clj`: zero errors and warnings. Scripts are
+  linted separately because they deliberately share the standalone `user` namespace.
 - JVM AOT compilation succeeded for `calliope.media.manifest`,
   `calliope.media.dataset`, and `calliope.law.media`.
 - `bb scripts/media.clj where` read the committed manifest: 2,598 entries,
@@ -37,10 +42,10 @@ rejects all symlinked write destinations and source/destination overlap.
 - The committed manifest agrees with all 1,909 historical track receipts:
   zero untracked entries, missing entries, byte drift, or hash-prefix drift.
   This compares recorded metadata; it does not assert the external bytes are present.
-- Replaying the new dataset/CLI regressions against the original implementation
+- Replaying the initial dataset/CLI regressions used for `99990d7` against the original implementation
   produced 38 failures and zero errors across 12 tests and 75 assertions.
 - Repository Contracts installs Babashka for the real CLI tests and now triggers
-  when `scripts/media.clj` or `bb.edn` changes.
+  when either media/corpus script or `bb.edn` changes.
 
 The recording rclone proves admission and exit behavior only. No live remote
 synchronization, full-corpus byte validation, model invocation, or audio playback

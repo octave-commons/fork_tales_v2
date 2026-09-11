@@ -155,6 +155,29 @@
        target)))
 
 #?(:clj
+   (defn store-asset!
+     "Copy a source asset to its SHA-8 location, or verify an existing copy.
+     Reject unsafe write paths and conflicting bytes before returning receipt data."
+     [root slug source ext]
+     (when-not (contains? ledger-checkable-extensions ext)
+       (throw (ex-info "Unsupported track asset extension" {:extension ext})))
+     (let [source-file (File. (str source))
+           sha256 (sha256-of-file source-file)
+           relpath (str slug "/" (subs sha256 0 8) "." ext)
+           target (resolve-write-file root relpath)]
+       (when-not (pos? (.length source-file))
+         (throw (ex-info "Empty track asset" {:source (str source)})))
+       (Files/createDirectories (.toPath (.getParentFile target))
+                                (make-array java.nio.file.attribute.FileAttribute 0))
+       (when-not (.exists target)
+         (Files/copy (.toPath source-file) (.toPath target) (make-array CopyOption 0)))
+       (let [actual (sha256-of-file target)]
+         (when-not (= sha256 actual)
+           (throw (ex-info "Existing or copied track bytes disagree with source"
+                           {:path relpath :expected sha256 :actual actual}))))
+       {:path relpath :bytes (.length target) :sha256 sha256})))
+
+#?(:clj
    (defn assemble-text!
      "Copy the canonical songbook projection (docs/lyrics/*.md|*.txt) from
      `repo-root` into `<root>/text/`, overwriting in place and removing stale

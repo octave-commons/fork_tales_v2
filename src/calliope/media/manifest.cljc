@@ -31,6 +31,15 @@
        (int? (:bytes-total value)) (<= 0 (:bytes-total value))
        (string? (:generated value))))
 
+(defn addressed-entry?
+  "Media and metadata basenames carry their SHA-8; songbook text keeps its name."
+  [{:keys [path sha256]}]
+  (and (string? path) (string? sha256)
+       (boolean (re-matches sha256-pattern sha256))
+       (or (boolean (re-find #"\.(md|txt)$" (str/lower-case path)))
+           (let [prefix (second (re-find #"(?:^|/)([0-9a-f]{8})\.[^.]+$" path))]
+             (and (some? prefix) (= prefix (subs sha256 0 8)))))))
+
 (defn entry?
   "Validate one closed manifest entry."
   [value]
@@ -39,4 +48,5 @@
        (content-path? (:path value))
        (int? (:bytes value)) (pos? (:bytes value))
        (string? (:sha256 value))
-       (boolean (re-matches sha256-pattern (:sha256 value)))))
+       (boolean (re-matches sha256-pattern (:sha256 value)))
+       (addressed-entry? value)))

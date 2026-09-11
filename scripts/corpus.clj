@@ -244,18 +244,17 @@
                            :flags (vec (distinct (mapcat :flags group)))
                            :sources (vec (sort (map :path group)))})
                    (inc n) (+ dupes (dec (count group)))))
-          (do
-            (let [idx-file (str (fs/path projections-dir "songs-v1.edn"))]
-              (spit idx-file (with-out-str (pprint/pprint idx)))
-              (spit (str (fs/path lyrics-dir "index.edn"))
-                    (with-out-str (pprint/pprint idx)))
-              (append-event! {:event/id (uuid) :event/type :projection/computed
-                              :ts (now-iso) :projection :songs-v1 :run/id run-id
-                              :unique-songs n :duplicates-collapsed dupes
-                              :index idx-file})
-              (println "Projected" n "unique songs;"
-                       dupes "duplicate files collapsed."
-                       "Index:" idx-file))))))))
+          (let [idx-file (str (fs/path projections-dir "songs-v1.edn"))]
+            (spit idx-file (with-out-str (pprint/pprint idx)))
+            (spit (str (fs/path lyrics-dir "index.edn"))
+                  (with-out-str (pprint/pprint idx)))
+            (append-event! {:event/id (uuid) :event/type :projection/computed
+                            :ts (now-iso) :projection :songs-v1 :run/id run-id
+                            :unique-songs n :duplicates-collapsed dupes
+                            :index idx-file})
+            (println "Projected" n "unique songs;"
+                     dupes "duplicate files collapsed."
+                     "Index:" idx-file)))))))
 
 ;; ---------------------------------------------------------------- stats
 
@@ -431,19 +430,13 @@
                                                 :when slug]
                                             slug))]
                         (if matched-slug
-                          (let [dest-base (str (fs/path root matched-slug))
-                                copied (atom 0)]
-                            (fs/create-dirs dest-base)
+                          (let [copied (atom 0)]
                             (doseq [f files
                                     :let [asset (classify-asset f)]
                                     :when asset]
-                              (let [bs (fs/read-all-bytes f)
-                                    sha256 (sha256-hex bs)
-                                    h (subs sha256 0 8)
-                                    ext (name asset)
-                                    dest (str (fs/path dest-base (str h "." ext)))]
-                                (when-not (fs/exists? dest)
-                                  (fs/copy f dest))
+                              (let [{:keys [path bytes sha256]}
+                                    (media/store-asset! root matched-slug f (name asset))
+                                    h (subs sha256 0 8)]
                                 (swap! copied inc)
                                 (append-event!
                                  {:event/id (uuid)
@@ -454,9 +447,9 @@
                                   :sha8 h
                                   :sha256 sha256
                                   :src f
-                                  :dest (str matched-slug "/" h "." ext)
+                                  :dest path
                                   :dataset/id media/dataset-id
-                                  :bytes (alength bs)})))
+                                  :bytes bytes})))
                             (recur (rest remaining)
                                    (update slug-counts matched-slug (fnil inc 0))
                                    unmatched

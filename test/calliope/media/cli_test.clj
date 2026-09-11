@@ -40,37 +40,47 @@
           (fixture/dataset! root)
           (spit (dataset/manifest-path root) pristine)
           (case change
-            :missing (Files/delete (.toPath (File. root "absence/one.mp3")))
-            :size (spit (File. root "absence/one.mp3") "x")
-            :hash (spit (File. root "absence/one.mp3") "hullo")
+            :missing (Files/delete (.toPath (File. root "absence/2cf24dba.mp3")))
+            :size (spit (File. root "absence/2cf24dba.mp3") "x")
+            :hash (spit (File. root "absence/2cf24dba.mp3") "hullo")
             :manifest (spit (dataset/manifest-path root)
                             "{:schema :calliope.media/manifest-v1 :entries 0}\n"))
           (let [result (run! "sync" "--remote" "fixture:media")]
             (is (not (zero? (:exit result))) (str change " " result))
             (is (not (.exists log)) (str change " must not invoke rclone")))
           (Files/deleteIfExists (.toPath log)))
-        (testing "ledger hashes reject a regenerated, same-size change"
+        (testing "ledger hashes reject contradictory discovery receipts"
          (doseq [hash-key [:sha256 :sha8]]
           (fixture/dataset! root)
-          (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/one.mp3")
+          (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/2cf24dba.mp3")
                 ledger (File. repo "ledgers/ingest.edn")]
             (.mkdirs (.getParentFile ledger))
             (spit ledger (pr-str {:event/type :track/discovered :asset :mp3
-                                 :dest "tracks/absence/one.mp3"
+                                 :dest "tracks/absence/2cf24dba.mp3"
                                  :bytes (:bytes entry)
                                  hash-key (if (= :sha8 hash-key)
                                             (subs (:sha256 entry) 0 8)
                                             (:sha256 entry))}))
             (is (zero? (:exit (run! "verify" "--ledger"))))
-            (spit (File. root "absence/one.mp3") "hullo")
-            (dataset/generate-manifest! root)
+            (spit ledger (pr-str {:event/type :track/discovered :asset :mp3
+                                 :dest "tracks/absence/2cf24dba.mp3" :bytes (:bytes entry)
+                                 hash-key (if (= :sha8 hash-key) "00000000"
+                                            (str (subs (:sha256 entry) 0 8)
+                                                 (apply str (repeat 56 "0"))))}))
             (let [result (run! "verify" "--ledger")]
               (is (not (zero? (:exit result))))
               (is (re-find #":hash-drift" (:out result)))))))
+        (testing "manifest regeneration cannot bless changed content-addressed bytes"
+          (fixture/dataset! root)
+          (let [before (slurp (dataset/manifest-path root))]
+            (spit (File. root "absence/2cf24dba.mp3") "hullo")
+            (is (not (zero? (:exit (run! "manifest")))))
+            (is (= before (slurp (dataset/manifest-path root))))
+            (is (not (zero? (:exit (run! "sync" "--remote" "fixture:media")))))))
         (testing "Babashka assembly rejects an in-root media alias"
           (let [lyrics (File. repo "docs/lyrics")
                 copy (File. root "text/a.txt")
-                victim (File. root "absence/one.mp3")
+                victim (File. root "absence/2cf24dba.mp3")
                 before (slurp victim)]
             (.mkdirs lyrics)
             (spit (File. lyrics "a.txt") "songbook")

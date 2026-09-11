@@ -19,9 +19,9 @@
     file))
 
 (defn dataset! [root]
-  (write-bytes! root "absence/one.mp3" (.getBytes "hello" "UTF-8"))
-  (write-bytes! root "absence/two.jpeg" (.getBytes "world" "UTF-8"))
-  (write-bytes! root "absence/meta.json" (.getBytes "meta" "UTF-8"))
+  (write-bytes! root "absence/2cf24dba.mp3" (.getBytes "hello" "UTF-8"))
+  (write-bytes! root "absence/486ea462.jpeg" (.getBytes "world" "UTF-8"))
+  (write-bytes! root "absence/ea3bd73e.json" (.getBytes "meta" "UTF-8"))
   (dataset/write-manifest! root {:generated "2026-08-26T00:00:00Z"}))
 
 (defmacro with-dataset [[root] & body]
@@ -38,29 +38,29 @@
       (is (= dataset/manifest-schema (:schema manifest)))
       (is (= "2026-08-26T00:00:00Z" (:generated manifest)))
       (is (= 3 (count (:entries manifest))))
-      (is (= ["absence/meta.json" "absence/one.mp3" "absence/two.jpeg"]
+      (is (= ["absence/2cf24dba.mp3" "absence/486ea462.jpeg" "absence/ea3bd73e.json"]
              (mapv :path (:entries manifest))))
       (is (= {:ok true :checked 3 :missing [] :size-mismatch [] :hash-mismatch [] :extras []}
              (dataset/verify root {:hash? true}))))))
 
 (deftest verification-detects-missing-size-hash-and-extra-files
   (with-dataset [root]
-    (Files/delete (.toPath (dataset/resolve-file root "absence/one.mp3")))
-    (is (= ["absence/one.mp3"] (:missing (dataset/verify root {:hash? true}))))
-    (write-bytes! root "absence/one.mp3" (.getBytes "x" "UTF-8"))
-    (is (= [{:path "absence/one.mp3" :expected 5 :actual 1}]
+    (Files/delete (.toPath (dataset/resolve-file root "absence/2cf24dba.mp3")))
+    (is (= ["absence/2cf24dba.mp3"] (:missing (dataset/verify root {:hash? true}))))
+    (write-bytes! root "absence/2cf24dba.mp3" (.getBytes "x" "UTF-8"))
+    (is (= [{:path "absence/2cf24dba.mp3" :expected 5 :actual 1}]
            (:size-mismatch (dataset/verify root {:hash? true}))))
-    (write-bytes! root "absence/one.mp3" (.getBytes "hullo" "UTF-8"))
+    (write-bytes! root "absence/2cf24dba.mp3" (.getBytes "hullo" "UTF-8"))
     (is (empty? (:hash-mismatch (dataset/verify root {:hash? false}))))
-    (is (= ["absence/one.mp3"] (mapv :path (:hash-mismatch (dataset/verify root {:hash? true})))))
+    (is (= ["absence/2cf24dba.mp3"] (mapv :path (:hash-mismatch (dataset/verify root {:hash? true})))))
     (write-bytes! root "absence/extra.mp3" (.getBytes "extra" "UTF-8"))
     (let [report (dataset/verify root {:hash? false})]
       (is (= ["absence/extra.mp3"] (:extras report)))
       (is (:ok report) "extras alone must not fail verification"))))
 
 (deftest paths-and-roots-normalize-as-specified
-  (is (= "absence/one.mp3" (dataset/normalize-dest "tracks/absence/one.mp3")))
-  (is (= "absence/one.mp3" (dataset/normalize-dest "absence/one.mp3")))
+  (is (= "absence/2cf24dba.mp3" (dataset/normalize-dest "tracks/absence/2cf24dba.mp3")))
+  (is (= "absence/2cf24dba.mp3" (dataset/normalize-dest "absence/2cf24dba.mp3")))
   (is (= {:root "/tmp/media" :source :env} (dataset/resolve-root "/repo" "/tmp/media")))
   (is (= {:root "/repo/tracks" :source :default} (dataset/resolve-root "/repo" "   "))))
 
@@ -68,13 +68,13 @@
   (with-dataset [root]
     (let [report (dataset/verify-against-ledger
                   root
-                  [{:event/type :track/discovered :asset :mp3 :dest "tracks/absence/one.mp3" :bytes 5}
-                   {:event/type :track/discovered :asset :jpeg :dest "absence/two.jpeg" :bytes 9}
-                   {:event/type :track/discovered :asset :json :dest "absence/meta.json" :bytes 4}
+                  [{:event/type :track/discovered :asset :mp3 :dest "tracks/absence/2cf24dba.mp3" :bytes 5}
+                   {:event/type :track/discovered :asset :jpeg :dest "absence/486ea462.jpeg" :bytes 9}
+                   {:event/type :track/discovered :asset :json :dest "absence/ea3bd73e.json" :bytes 4}
                    {:event/type :track/discovered :asset :mp3 :dest "absent/three.mp3" :bytes 1}])]
       (is (= [] (:untracked-in-ledger report)))
       (is (= ["absent/three.mp3"] (:missing-from-manifest report)))
-      (is (= [{:path "absence/two.jpeg" :expected 9 :actual 5}]
+      (is (= [{:path "absence/486ea462.jpeg" :expected 9 :actual 5}]
              (:bytes-drift report))))))
 
 (deftest assembly-copies-songbook-text-into-the-dataset
@@ -169,7 +169,7 @@
         (write-forms! root (cons envelope (assoc entries 0 invalid)))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"line 2"
                               (dataset/read-manifest root)) (pr-str invalid)))
-      (write-forms! root [(assoc envelope :entries 2 :bytes-total 8)
+      (write-forms! root [(assoc envelope :entries 2 :bytes-total 10)
                          (first entries) (first entries)])
       (is (thrown? clojure.lang.ExceptionInfo (dataset/read-manifest root)))
       (spit (dataset/manifest-path root)
@@ -178,7 +178,7 @@
 
 (deftest resolution-rejects-traversal-and-outside-symlinks
   (with-dataset [root]
-    (doseq [path ["../outside.mp3" "absence/../../outside.mp3" "./absence/one.mp3"
+    (doseq [path ["../outside.mp3" "absence/../../outside.mp3" "./absence/2cf24dba.mp3"
                   "/outside.mp3" "absence\\one.mp3" "C:/outside.mp3"]]
       (is (thrown? clojure.lang.ExceptionInfo (dataset/resolve-file root path)) path)))
   (let [parent (temp-dir)
@@ -187,11 +187,11 @@
     (try
       (dataset! root)
       (write-bytes! outside "one.mp3" (.getBytes "hello" "UTF-8"))
-      (let [file (.toPath (File. root "absence/one.mp3"))]
+      (let [file (.toPath (File. root "absence/2cf24dba.mp3"))]
         (Files/delete file)
         (Files/createSymbolicLink file (.toPath (File. outside "one.mp3"))
                                   (make-array java.nio.file.attribute.FileAttribute 0)))
-      (is (thrown? clojure.lang.ExceptionInfo (dataset/resolve-file root "absence/one.mp3")))
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/resolve-file root "absence/2cf24dba.mp3")))
       (is (thrown? clojure.lang.ExceptionInfo (dataset/verify root {:hash? true})))
       (is (thrown? clojure.lang.ExceptionInfo (dataset/generate-manifest! root)))
       (finally (delete-tree! parent)))))
@@ -211,37 +211,31 @@
         (is (= "source" (slurp (File. lyrics "a.txt")))))
       (finally (delete-tree! repo)))))
 
-(deftest ledger-verification-detects-same-size-hash-drift
+(deftest ledger-verification-detects-full-hash-drift-with-equal-prefix
   (with-dataset [root]
-    (let [original (dataset/entry-for (dataset/read-manifest root) "absence/one.mp3")
-          event {:event/type :track/discovered :asset :mp3 :dest "tracks/absence/one.mp3"
+    (let [original (dataset/entry-for (dataset/read-manifest root) "absence/2cf24dba.mp3")
+          event {:event/type :track/discovered :asset :mp3 :dest "tracks/absence/2cf24dba.mp3"
                  :bytes (:bytes original) :sha256 (:sha256 original)}]
       (is (empty? (:hash-drift (dataset/verify-against-ledger root [event]))))
-      (write-bytes! root "absence/one.mp3" (.getBytes "hullo" "UTF-8"))
-      (dataset/generate-manifest! root)
-      (let [report (dataset/verify-against-ledger root [event])]
+      (let [conflicting (str (subs (:sha256 original) 0 8) (apply str (repeat 56 "0")))
+            report (dataset/verify-against-ledger root [(assoc event :sha256 conflicting)])]
         (is (empty? (:bytes-drift report)))
-        (is (= [{:path "absence/one.mp3" :expected (:sha256 original)
-                 :actual (:sha256 (dataset/entry-for (dataset/read-manifest root) "absence/one.mp3"))}]
+        (is (= [{:path "absence/2cf24dba.mp3" :expected conflicting :actual (:sha256 original)}]
                (:hash-drift report))))
       (is (empty? (:hash-drift (dataset/verify-against-ledger root [(dissoc event :sha256)])))))))
 
 (deftest ledger-verification-checks-legacy-sha8-with-full-hash-precedence
   (with-dataset [root]
-    (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/one.mp3")
+    (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/2cf24dba.mp3")
           prefix (subs (:sha256 entry) 0 8)
-          event {:event/type :track/discovered :asset :mp3 :dest "tracks/absence/one.mp3"
+          event {:event/type :track/discovered :asset :mp3 :dest "tracks/absence/2cf24dba.mp3"
                  :bytes (:bytes entry) :sha8 prefix}]
       (is (empty? (:hash-drift (dataset/verify-against-ledger root [event]))))
       (is (empty? (:hash-drift (dataset/verify-against-ledger
                                root [(assoc event :sha256 (:sha256 entry) :sha8 "wrong")]))))
-      (write-bytes! root "absence/one.mp3" (.getBytes "hullo" "UTF-8"))
-      (dataset/generate-manifest! root)
-      (let [report (dataset/verify-against-ledger root [event])]
+      (let [report (dataset/verify-against-ledger root [(assoc event :sha8 "00000000")])]
         (is (empty? (:bytes-drift report)))
-        (is (= [{:path "absence/one.mp3" :expected prefix
-                 :actual (subs (:sha256 (dataset/entry-for (dataset/read-manifest root)
-                                                         "absence/one.mp3")) 0 8)}]
+        (is (= [{:path "absence/2cf24dba.mp3" :expected "00000000" :actual prefix}]
                (:hash-drift report)))))))
 
 (deftest assembly-rejects-in-root-symlinked-write-components
@@ -269,3 +263,10 @@
           (when (= :directory link-kind) (Files/deleteIfExists (.toPath (File. root "text"))))
           (delete-tree! repo)
           (delete-tree! root))))))
+
+(deftest manifest-generation-refuses-stale-content-addresses
+  (with-dataset [root]
+    (let [before (slurp (dataset/manifest-path root))]
+      (write-bytes! root "absence/2cf24dba.mp3" (.getBytes "hullo" "UTF-8"))
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/generate-manifest! root)))
+      (is (= before (slurp (dataset/manifest-path root)))))))

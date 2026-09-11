@@ -14,10 +14,11 @@
     [:generated :string]]
 
    :calliope.media/manifest-entry-v1
-    [:map {:closed true}
+    [:and [:map {:closed true}
      [:path [:fn manifest/content-path?]]
      [:bytes [:int {:min 1}]]
      [:sha256 [:and :string [:re manifest/sha256-pattern]]]]
+     [:fn manifest/addressed-entry?]]
 
    :calliope.media/manifest-v1
    [:map {:closed true}
