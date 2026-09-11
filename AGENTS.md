@@ -24,6 +24,8 @@ not imply access to Err's machine.
   `text/` songbook projection are untracked dataset content synchronized
   externally via rclone (`bb scripts/media.clj`). Any folder with a valid
   `MANIFEST.edn` works as the dataset when selected via `CALLIOPE_MEDIA_ROOT`.
+  Track ingestion into an external root also projects its full manifest and
+  verified JSON metadata into repository `tracks/` for the next git commit.
 - `src/calliope/media/dataset.cljc` — pure dataset library (root resolution,
   manifest read/write, verification).
 - `resources/classifiers/` — pure-data classifier and feature-extractor programs.

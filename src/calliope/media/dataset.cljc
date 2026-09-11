@@ -274,12 +274,18 @@
      (throw (ex-info "Media datasets require a JVM filesystem" {}))))
 
 #?(:clj
-   (defn write-manifest!
-     "Scan `root` and replace its manifest without following destination aliases."
-     [root {:keys [generated]}]
+   (defn- replace-file! [^File target write-temp!]
+     (let [temp (Files/createTempFile (.toPath (.getParentFile target)) ".projection-" ".tmp"
+                                      (make-array java.nio.file.attribute.FileAttribute 0))]
+       (try
+         (write-temp! (.toFile temp))
+         (Files/move temp (.toPath target) (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))
+         (finally (Files/deleteIfExists temp))))))
+
+#?(:clj
+   (defn- write-manifest-entries! [root entries generated]
      (let [target (resolve-write-file root manifest-name)
            path (str target)
-           entries (scan-entries root)
            bytes-total (reduce + 0 (map :bytes entries))
            envelope {:dataset/id dataset-id
                      :schema manifest-schema
@@ -288,13 +294,14 @@
                      :generated generated}]
        (when-not (and (manifest/envelope? envelope) (every? manifest/entry? entries))
          (throw (ex-info "Cannot write invalid or empty media manifest" {:path path})))
-       (let [temp (Files/createTempFile (.toPath (.getParentFile target)) ".manifest-" ".edn"
-                                         (make-array java.nio.file.attribute.FileAttribute 0))]
-         (try
-           (spit (.toFile temp) (str (str/join "\n" (map pr-str (cons envelope entries))) "\n"))
-           (Files/move temp (.toPath target) (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))
-           (finally (Files/deleteIfExists temp))))
-       {:entries (count entries) :bytes-total bytes-total :path path}))
+       (replace-file! target #(spit % (str (str/join "\n" (map pr-str (cons envelope entries))) "\n")))
+       {:entries (count entries) :bytes-total bytes-total :path path})))
+
+#?(:clj
+   (defn write-manifest!
+     "Scan `root` and replace its manifest without following destination aliases."
+     [root {:keys [generated]}]
+     (write-manifest-entries! root (scan-entries root) generated))
    :cljs
    (defn write-manifest! [& _]
      (throw (ex-info "Media datasets require a JVM filesystem" {}))))
@@ -304,6 +311,38 @@
   [root]
   #?(:clj (write-manifest! root {:generated (str (Instant/now))})
      :cljs (throw (ex-info "Media datasets require a JVM filesystem" {:root root}))))
+
+#?(:clj
+   (defn mirror-metadata!
+     "Project an external dataset's JSON and full manifest into repository tracks/.
+     Verify copied JSON before replacement; never copy audio, artwork or songbook bytes."
+     [repo-root root]
+     (let [source-root (.getCanonicalFile (File. (str root)))
+           target-root (resolve-write-file repo-root default-dataset-dir)]
+       (when-not (= source-root target-root)
+         (when (or (.startsWith (.toPath source-root) (.toPath target-root))
+                   (.startsWith (.toPath target-root) (.toPath source-root)))
+           (throw (ex-info "Metadata projection roots overlap" {:root root :target (str target-root)})))
+         (let [{:keys [entries generated]} (read-manifest root)]
+           (resolve-write-file target-root manifest-name)
+           (Files/createDirectories (.toPath target-root) (make-array java.nio.file.attribute.FileAttribute 0))
+           (doseq [{:keys [path bytes sha256]} entries
+                   :when (= "json" (extension path))]
+             (let [source (resolve-file root path)
+                   target (resolve-write-file target-root path)]
+               (Files/createDirectories (.toPath (.getParentFile target))
+                                        (make-array java.nio.file.attribute.FileAttribute 0))
+               (replace-file!
+                target
+                (fn [^File temp]
+                  (Files/copy (.toPath source) (.toPath temp)
+                              (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))
+                  (when-not (and (= bytes (.length temp)) (= sha256 (sha256-of-file temp)))
+                    (throw (ex-info "Metadata bytes disagree with manifest" {:path path})))))))
+           (write-manifest-entries! target-root entries generated)))))
+   :cljs
+   (defn mirror-metadata! [& _]
+     (throw (ex-info "Media datasets require a JVM filesystem" {}))))
 
 ;; --------------------------------------------------------------- verification
 

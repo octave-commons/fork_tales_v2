@@ -64,6 +64,33 @@
   (is (= {:root "/tmp/media" :source :env} (dataset/resolve-root "/repo" "/tmp/media")))
   (is (= {:root "/repo/tracks" :source :default} (dataset/resolve-root "/repo" "   "))))
 
+(deftest metadata-mirror-checks-copied-bytes-and-replaces-hard-links
+  (doseq [scenario [:corrupt :hard-link]]
+    (with-dataset [root]
+      (let [repo (temp-dir)
+            tracked (str repo "/tracks")
+            target (File. tracked "absence/ea3bd73e.json")
+            victim (File. repo "victim")
+            manifest (File. tracked dataset/manifest-name)]
+        (try
+          (.mkdirs (.getParentFile target))
+          (spit manifest "previous manifest")
+          (spit victim "previous metadata")
+          (Files/createLink (.toPath target) (.toPath victim))
+          (when (= :corrupt scenario)
+            (spit (File. root "absence/ea3bd73e.json") "evil"))
+          (if (= :corrupt scenario)
+            (do
+              (is (thrown? clojure.lang.ExceptionInfo (dataset/mirror-metadata! repo root)))
+              (is (= "previous metadata" (slurp target)))
+              (is (= "previous manifest" (slurp manifest))))
+            (do
+              (dataset/mirror-metadata! repo root)
+              (is (= "meta" (slurp target)))
+              (is (= (dataset/read-manifest root) (dataset/read-manifest tracked)))))
+          (is (= "previous metadata" (slurp victim)))
+          (finally (delete-tree! repo)))))))
+
 (deftest ledger-verification-checks-media-and-metadata-events
   (with-dataset [root]
     (let [report (dataset/verify-against-ledger

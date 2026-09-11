@@ -15,6 +15,7 @@
 ;; Pass 3: media assets are copied into the content-addressed dataset directory
 ;; (default tracks/, override via CALLIOPE_MEDIA_ROOT) with a MANIFEST.edn
 ;; projection; media bytes are synced externally (rclone), not tracked by git.
+;; External-root ingestion also mirrors JSON and the full manifest into tracks/.
 ;;
 ;; Usage:
 ;;   bb scripts/corpus.clj ingest    scan roots, append events to the ledger
@@ -467,12 +468,6 @@
                        :unmatched unmatched
                        :total-files total-files
                        :total-copied total-copied}))]
-        (append-event! {:event/id (uuid) :event/type :tracks/run-completed
-                        :run/id run-id :ts (now-iso)
-                        :slug-counts (:slug-counts stats)
-                        :unmatched-dirs (:unmatched stats)
-                        :total-files (:total-files stats)
-                        :total-copied (:total-copied stats)})
         ;; write tracks index
         (let [idx-out (str (fs/path projections-dir "tracks-v1.edn"))]
           (spit idx-out (with-out-str (pprint/pprint (:slug-counts stats))))
@@ -481,7 +476,14 @@
                    (:unmatched stats) "unmatched dirs.")
           (println "Index:" idx-out)
           (let [{:keys [entries path]} (media/generate-manifest! root)]
-            (println "Manifest:" path "(" entries "entries)")))))))
+            (media/mirror-metadata! repo-root root)
+            (println "Manifest:" path "(" entries "entries)")))
+        (append-event! {:event/id (uuid) :event/type :tracks/run-completed
+                        :run/id run-id :ts (now-iso)
+                        :slug-counts (:slug-counts stats)
+                        :unmatched-dirs (:unmatched stats)
+                        :total-files (:total-files stats)
+                        :total-copied (:total-copied stats)})))))
 
 (let [cmd (first *command-line-args*)]
   (case cmd
