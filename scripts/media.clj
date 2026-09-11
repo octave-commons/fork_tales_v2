@@ -105,7 +105,8 @@
                                  (if event (recur (conj events event)) events))))))
           ledger-failure? (and ledger-report
                                (or (seq (:missing-from-manifest ledger-report))
-                                   (seq (:bytes-drift ledger-report))))]
+                                   (seq (:bytes-drift ledger-report))
+                                   (seq (:hash-drift ledger-report))))]
       (pprint/pprint report)
       (when ledger-report
         (pprint/pprint ledger-report)
@@ -117,6 +118,11 @@
 (defn sync! [args]
   (let [{:keys [root]} (resolved-root)]
     (require-manifest! root)
+    (let [report (media/verify root {:hash? true})]
+      (when-not (:ok report)
+        (pprint/pprint report)
+        (println "ERROR: local dataset verification failed; remote was not synchronized.")
+        (System/exit 1)))
     (run-rclone! ["rclone" "sync" root (remote args) "--files-from" (files-from! root)
                   "--transfers" "4" "--checkers" "8" "-v"])
     (println "Sync complete. Run `bb scripts/media.clj check` to verify the remote.")))

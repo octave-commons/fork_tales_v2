@@ -1,6 +1,7 @@
 (ns calliope.media.dataset-test
   (:require [calliope.media.dataset :as dataset]
-            [clojure.test :refer [deftest is testing]])
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]])
   (:import [java.io File]
            [java.nio.file Files]))
 
@@ -117,3 +118,110 @@
             expected (format "%064x" (java.math.BigInteger. 1 (.digest digest (.getBytes "hello" "UTF-8"))))]
         (is (= expected (dataset/sha256-of-file file))))
       (finally (delete-tree! root)))))
+
+(deftest assembly-removes-deleted-source-text
+  (let [repo (temp-dir)
+        root (temp-dir)]
+    (try
+      (let [lyrics (File. repo "docs/lyrics")]
+        (.mkdirs lyrics)
+        (spit (File. lyrics "a.md") "A")
+        (spit (File. lyrics "b.txt") "B")
+        (dataset/assemble-text! repo root)
+        (Files/delete (.toPath (File. lyrics "a.md")))
+        (spit (File. lyrics "b.txt") "updated")
+        (is (= 1 (dataset/assemble-text! repo root)))
+        (is (not (.exists (File. root "text/a.md"))))
+        (is (= "updated" (slurp (File. root "text/b.txt"))))
+        (dataset/generate-manifest! root)
+        (is (= ["text/b.txt"] (mapv :path (:entries (dataset/read-manifest root)))))
+        (Files/delete (.toPath (File. lyrics "b.txt")))
+        (is (zero? (dataset/assemble-text! repo root)))
+        (is (not (.exists (File. root "text/b.txt")))))
+      (finally (delete-tree! repo) (delete-tree! root)))))
+
+(defn write-forms! [root forms]
+  (spit (dataset/manifest-path root) (str (str/join "\n" (map pr-str forms)) "\n")))
+
+(deftest manifest-validation-rejects-incomplete-and-invalid-data
+  (with-dataset [root]
+    (let [entries (:entries (dataset/read-manifest root))
+          envelope {:dataset/id dataset/dataset-id :schema dataset/manifest-schema
+                    :entries 3 :bytes-total 14 :generated "2026-09-11T00:00:00Z"}]
+      (doseq [invalid [(assoc envelope :dataset/id "other")
+                       (dissoc envelope :generated)
+                       (dissoc envelope :bytes-total)
+                       (assoc envelope :bytes-total 13)
+                       (assoc envelope :generated nil)
+                       (assoc envelope :unknown true)]]
+        (write-forms! root (cons invalid entries))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"line 1"
+                              (dataset/verify root {:hash? false})) (pr-str invalid)))
+      (write-forms! root [(assoc envelope :entries 0 :bytes-total 0)])
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/read-manifest root)))
+      (doseq [invalid [(dissoc (first entries) :sha256)
+                       (assoc (first entries) :sha256 "bad")
+                       (assoc (first entries) :bytes 0)
+                       (assoc (first entries) :bytes "4")
+                       (assoc (first entries) :path "../outside.mp3")
+                       (assoc (first entries) :unknown true)
+                       nil]]
+        (write-forms! root (cons envelope (assoc entries 0 invalid)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"line 2"
+                              (dataset/read-manifest root)) (pr-str invalid)))
+      (write-forms! root [(assoc envelope :entries 2 :bytes-total 8)
+                         (first entries) (first entries)])
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/read-manifest root)))
+      (spit (dataset/manifest-path root)
+            (str (pr-str envelope) " {}\n" (str/join "\n" (map pr-str entries)) "\n"))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"line 1" (dataset/read-manifest root))))))
+
+(deftest resolution-rejects-traversal-and-outside-symlinks
+  (with-dataset [root]
+    (doseq [path ["../outside.mp3" "absence/../../outside.mp3" "./absence/one.mp3"
+                  "/outside.mp3" "absence\\one.mp3" "C:/outside.mp3"]]
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/resolve-file root path)) path)))
+  (let [parent (temp-dir)
+        root (str parent "/dataset")
+        outside (str parent "/dataset-other")]
+    (try
+      (dataset! root)
+      (write-bytes! outside "one.mp3" (.getBytes "hello" "UTF-8"))
+      (let [file (.toPath (File. root "absence/one.mp3"))]
+        (Files/delete file)
+        (Files/createSymbolicLink file (.toPath (File. outside "one.mp3"))
+                                  (make-array java.nio.file.attribute.FileAttribute 0)))
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/resolve-file root "absence/one.mp3")))
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/verify root {:hash? true})))
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/generate-manifest! root)))
+      (finally (delete-tree! parent)))))
+
+(deftest assembly-cannot-overwrite-source-through-a-symlink
+  (let [repo (temp-dir)]
+    (try
+      (let [lyrics (File. repo "docs/lyrics")
+            text (File. repo "text")]
+        (.mkdirs lyrics)
+        (.mkdirs text)
+        (spit (File. lyrics "a.txt") "source")
+        (Files/createSymbolicLink (.toPath (File. text "a.txt"))
+                                  (.toPath (File. lyrics "a.txt"))
+                                  (make-array java.nio.file.attribute.FileAttribute 0))
+        (is (thrown? clojure.lang.ExceptionInfo (dataset/assemble-text! repo repo)))
+        (is (= "source" (slurp (File. lyrics "a.txt")))))
+      (finally (delete-tree! repo)))))
+
+(deftest ledger-verification-detects-same-size-hash-drift
+  (with-dataset [root]
+    (let [original (dataset/entry-for (dataset/read-manifest root) "absence/one.mp3")
+          event {:event/type :track/discovered :asset :mp3 :dest "tracks/absence/one.mp3"
+                 :bytes (:bytes original) :sha256 (:sha256 original)}]
+      (is (empty? (:hash-drift (dataset/verify-against-ledger root [event]))))
+      (write-bytes! root "absence/one.mp3" (.getBytes "hullo" "UTF-8"))
+      (dataset/generate-manifest! root)
+      (let [report (dataset/verify-against-ledger root [event])]
+        (is (empty? (:bytes-drift report)))
+        (is (= [{:path "absence/one.mp3" :expected (:sha256 original)
+                 :actual (:sha256 (dataset/entry-for (dataset/read-manifest root) "absence/one.mp3"))}]
+               (:hash-drift report))))
+      (is (empty? (:hash-drift (dataset/verify-against-ledger root [(dissoc event :sha256)])))))))

@@ -5,18 +5,20 @@
   `CALLIOPE_MEDIA_ROOT` environment variable selects that directory; otherwise
   the repository's `tracks/` directory is used. Media bytes are externally
   synchronized, while the manifest makes their identity and integrity portable."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+  (:require [calliope.media.manifest :as manifest]
+            #?(:clj [clojure.edn :as edn])
+            #?(:clj [clojure.java.io :as io])
             [clojure.string :as str])
-  #?(:clj (:import [java.io BufferedInputStream BufferedReader File FileInputStream InputStreamReader]
+  #?(:clj (:import [java.io BufferedInputStream BufferedReader File FileInputStream InputStreamReader PushbackReader StringReader]
                    [java.math BigInteger]
+                   [java.nio.file Files FileVisitOption Path]
                    [java.security MessageDigest]
                    [java.time Instant])))
 
 ;; ---------------------------------------------------------------- constants
 
-(def dataset-id "calliope-media")
-(def manifest-schema :calliope.media/manifest-v1)
+(def dataset-id manifest/dataset-id)
+(def manifest-schema manifest/schema)
 (def env-var "CALLIOPE_MEDIA_ROOT")
 (def default-dataset-dir "tracks")
 (def manifest-name "MANIFEST.edn")
@@ -57,6 +59,22 @@
   [root]
   (str root "/" manifest-name))
 
+#?(:clj
+   (defn resolve-file
+     "Resolve a POSIX relative path, rejecting traversal and symlinks outside root."
+     [root relpath]
+     (when-not (manifest/relative-path? relpath)
+       (throw (ex-info "Invalid dataset-relative path" {:path relpath})))
+     (let [base (.getCanonicalFile (File. (str root)))
+           file (.getCanonicalFile (File. base relpath))]
+       (when-not (and (not= base file)
+                      (.startsWith (.toPath file) (.toPath base)))
+         (throw (ex-info "Dataset path escapes root" {:root (str base) :path relpath})))
+       file))
+   :cljs
+   (defn resolve-file [& _]
+     (throw (ex-info "Media datasets require a JVM filesystem" {}))))
+
 ;; --------------------------------------------------------------- hashing
 
 #?(:clj
@@ -79,17 +97,21 @@
 
 #?(:clj
    (defn- relative-path [^File root ^File file]
-     (-> (.relativize (.toPath root) (.toPath file)) str (str/replace "\\" "/")))
-   :cljs
-   (defn- relative-path [& _] nil))
+     (-> (.relativize (.toPath root) (.toPath file)) str (str/replace "\\" "/"))))
 
 (defn- extension [path]
   (some->> (re-find #"(?i)\.([^.]+)$" (str path)) second str/lower-case))
 
 #?(:clj
+   (defn- files-under [^File root]
+     ;; Files/walk does not follow directory symlinks, including cycles.
+     (with-open [paths (Files/walk (.toPath root) (make-array FileVisitOption 0))]
+       (mapv #(.toFile ^Path %) (iterator-seq (.iterator paths))))))
+
+#?(:clj
    (defn- media-files [root]
      (let [root-file (.getCanonicalFile (File. (str root)))]
-       (->> (file-seq root-file)
+       (->> (files-under root-file)
             (filter #(.isFile ^File %))
             (remove #(= manifest-name (.getName ^File %)))
             (filter #(contains? content-extensions (extension (.getName ^File %))))))))
@@ -102,9 +124,11 @@
      (let [root-file (.getCanonicalFile (File. (str root)))]
        (->> (media-files root)
             (map (fn [^File file]
-                   {:path (relative-path root-file file)
-                    :bytes (.length file)
-                    :sha256 (sha256-of-file file)}))
+                   (let [path (relative-path root-file file)
+                         resolved (resolve-file root path)]
+                     {:path path
+                      :bytes (.length ^File resolved)
+                      :sha256 (sha256-of-file resolved)})))
             (sort-by :path)
             vec)))
    :cljs
@@ -124,40 +148,59 @@
 #?(:clj
    (defn assemble-text!
      "Copy the canonical songbook projection (docs/lyrics/*.md|*.txt) from
-     `repo-root` into `<root>/text/`, overwriting in place. The repository
-     stays the authority; this copy exists so one dataset folder carries the
+     `repo-root` into `<root>/text/`, overwriting in place and removing stale
+     text copies. The repository stays the authority; this copy exists so one dataset folder carries the
      complete corpus. Returns the number of files written."
      [repo-root root]
      (let [source (File. (str repo-root) text-source-dir)]
        (when-not (.isDirectory source)
          (throw (ex-info "Songbook projection missing — run `bb scripts/corpus.clj project` first."
                          {:dir (str source)})))
-       (let [dest (File. (str root) text-dir)]
+       (let [dest (resolve-file root text-dir)
+             files (or (.listFiles source)
+                       (throw (ex-info "Cannot list songbook projection" {:dir (str source)})))
+             supported (filterv (fn [^File f]
+                                  (and (.isFile f)
+                                       (contains? text-extensions (extension (.getName f))))) files)
+             names (set (map #(.getName ^File %) supported))]
+         (when (= (.getCanonicalFile source) dest)
+           (throw (ex-info "Dataset text directory overlaps songbook source" {:dir (str dest)})))
          (.mkdirs dest)
-         (->> (.listFiles source)
-              (filter (fn [^File f]
-                        (and (.isFile f)
-                             (contains? text-extensions (extension (.getName f))))))
-              (map (fn [^File f]
-                     (io/copy f (File. dest (.getName f)))
-                     (.getName f)))
-              doall
-              count))))
+         (doseq [^File f supported]
+           (let [target (resolve-file root (str text-dir "/" (.getName f)))]
+             (when (.startsWith (.toPath target) (.toPath (.getCanonicalFile source)))
+               (throw (ex-info "Dataset text file overlaps songbook source" {:path (str target)})))
+             (io/copy f target)))
+         (doseq [^File f (files-under dest)
+                 :when (and (.isFile f)
+                            (contains? text-extensions (extension (.getName f)))
+                            (not (contains? names (relative-path dest f))))]
+           ;; Validate containment before deleting any regenerable copy.
+           (resolve-file root (str text-dir "/" (relative-path dest f)))
+           (Files/delete (.toPath f)))
+         (count supported))))
    :cljs
    (defn assemble-text! [& _]
      (throw (ex-info "Media datasets require a JVM filesystem" {}))))
 
-(defn- parse-line [line-number line]
-  (try
-    (edn/read-string line)
-    (catch #?(:clj Exception :cljs :default) cause
-      (throw (ex-info (str "Malformed manifest line " line-number)
-                      {:line line-number} cause)))))
+#?(:clj
+   (defn- parse-line [line-number line]
+     (try
+       (with-open [reader (PushbackReader. (StringReader. line))]
+         (let [eof (Object.)
+               value (edn/read {:eof eof} reader)]
+           (when (or (identical? value eof)
+                     (not (identical? eof (edn/read {:eof eof} reader))))
+             (throw (ex-info "Expected exactly one EDN form" {})))
+           value))
+       (catch Exception cause
+         (throw (ex-info (str "Malformed manifest line " line-number)
+                         {:line line-number} cause))))))
 
 #?(:clj
    (defn read-manifest
-     "Read a line-oriented manifest and validate its envelope and entry count.
-     Invalid EDN, schema, or count failures name their offending line."
+     "Read and validate every manifest form, identity, path, count and byte total.
+     Invalid data names its offending line; duplicate paths are rejected."
      [root]
      (let [path (manifest-path root)]
        (with-open [reader (BufferedReader. (InputStreamReader. (FileInputStream. (File. path))))]
@@ -169,16 +212,26 @@
                                  (parse-line line-number line))
                                (range 2 (+ 2 (count (rest lines))))
                                (rest lines))]
-             (when-not (= manifest-schema (:schema envelope))
-               (throw (ex-info "Malformed manifest line 1: wrong schema"
-                               {:line 1 :path path :schema (:schema envelope)})))
+             (when-not (manifest/envelope? envelope)
+               (throw (ex-info "Malformed manifest line 1: invalid envelope"
+                               {:line 1 :path path})))
+             (doseq [[index entry] (map-indexed vector entries)]
+               (when-not (manifest/entry? entry)
+                 (throw (ex-info (str "Malformed manifest line " (+ 2 index) ": invalid entry")
+                                 {:line (+ 2 index) :path path}))))
              (when-not (= (:entries envelope) (count entries))
                (throw (ex-info "Malformed manifest line 1: entry count mismatch"
                                {:line 1 :path path :expected (:entries envelope)
                                 :actual (count entries)})))
+             (when-not (= (:bytes-total envelope) (reduce +' 0 (map :bytes entries)))
+               (throw (ex-info "Malformed manifest line 1: byte total mismatch"
+                               {:line 1 :path path})))
+             (when-not (= (count entries) (count (set (map :path entries))))
+               (throw (ex-info "Malformed manifest: duplicate entry paths" {:path path})))
              {:dataset/id (:dataset/id envelope)
               :schema (:schema envelope)
               :generated (:generated envelope)
+              :bytes-total (:bytes-total envelope)
               :entries entries})))))
    :cljs
    (defn read-manifest [& _]
@@ -196,6 +249,8 @@
                      :entries (count entries)
                      :bytes-total bytes-total
                      :generated generated}]
+       (when-not (and (manifest/envelope? envelope) (every? manifest/entry? entries))
+         (throw (ex-info "Cannot write invalid or empty media manifest" {:path path})))
        (spit path (str (str/join "\n" (map pr-str (cons envelope entries))) "\n"))
        {:entries (count entries) :bytes-total bytes-total :path path}))
    :cljs
@@ -206,7 +261,7 @@
   "Write a manifest stamped with the current ISO-8601 instant."
   [root]
   #?(:clj (write-manifest! root {:generated (str (Instant/now))})
-     :cljs (throw (ex-info "Media datasets require a JVM filesystem" {}))))
+     :cljs (throw (ex-info "Media datasets require a JVM filesystem" {:root root}))))
 
 ;; --------------------------------------------------------------- verification
 
@@ -214,15 +269,6 @@
   "Return the manifest entry for dataset-relative `relpath`, if present."
   [manifest relpath]
   (some #(when (= relpath (:path %)) %) (:entries manifest)))
-
-#?(:clj
-   (defn resolve-file
-     "Return the File for dataset-relative `relpath` beneath `root`."
-     [root relpath]
-     (File. (File. (str root)) relpath))
-   :cljs
-   (defn resolve-file [& _]
-     (throw (ex-info "Media datasets require a JVM filesystem" {}))))
 
 #?(:clj
    (defn verify
@@ -287,7 +333,16 @@
                              (when (not= (:bytes event) (:bytes entry))
                                {:path path :expected (:bytes event) :actual (:bytes entry)}))))
                    (sort-by :path)
-                   vec)]
+                   vec)
+        hash-drift (->> events-by-path
+                        (keep (fn [[path event]]
+                                (when-let [entry (manifest-by-path path)]
+                                  (when (and (contains? event :sha256)
+                                             (not= (:sha256 event) (:sha256 entry)))
+                                    {:path path :expected (:sha256 event) :actual (:sha256 entry)}))))
+                        (sort-by :path)
+                        vec)]
     {:untracked-in-ledger untracked
      :missing-from-manifest missing
-     :bytes-drift drift}))
+     :bytes-drift drift
+     :hash-drift hash-drift}))

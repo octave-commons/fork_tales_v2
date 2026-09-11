@@ -1,12 +1,13 @@
 (ns calliope.law.media
   "Malli contracts for the manifest-addressed Calliope media dataset."
-  (:require [malli.core :as m]
+  (:require [calliope.media.manifest :as manifest]
+            [malli.core :as m]
             [malli.registry :as mr]))
 
 (def registry
   {:calliope.media/manifest-envelope-v1
    [:map {:closed true}
-    [:dataset/id :string]
+    [:dataset/id [:= manifest/dataset-id]]
     [:schema [:= :calliope.media/manifest-v1]]
     [:entries [:int {:min 1}]]
     [:bytes-total [:int {:min 0}]]
@@ -14,16 +15,15 @@
 
    :calliope.media/manifest-entry-v1
     [:map {:closed true}
-     [:path [:and [:string {:min 1}]
-             [:re #"^[^/\s]+(/[^/\s]+)*\.(mp3|jpeg|json|md|txt)$"]]]
+     [:path [:fn manifest/content-path?]]
      [:bytes [:int {:min 1}]]
-     [:sha256 [:and :string [:re #"^[0-9a-f]{64}$"]]]]
+     [:sha256 [:and :string [:re manifest/sha256-pattern]]]]
 
    :calliope.media/manifest-v1
    [:map {:closed true}
-    [:dataset/id :string]
+    [:dataset/id [:= manifest/dataset-id]]
     [:schema [:= :calliope.media/manifest-v1]]
-    [:entries [:vector [:ref :calliope.media/manifest-entry-v1]]]
+    [:entries [:vector {:min 1} [:ref :calliope.media/manifest-entry-v1]]]
     [:bytes-total {:optional true} [:int {:min 0}]]
     [:generated :string]]})
 

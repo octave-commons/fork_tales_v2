@@ -9,6 +9,8 @@ on:
       - "AGENTS.md"
       - "PROCESS.md"
       - "deps.edn"
+      - "bb.edn"
+      - "scripts/media.clj"
       - "docs/classifier-dsl.md"
       - "docs/harnesses/**"
       - "docs/research/**"
@@ -30,6 +32,8 @@ on:
       - "AGENTS.md"
       - "PROCESS.md"
       - "deps.edn"
+      - "bb.edn"
+      - "scripts/media.clj"
       - "docs/classifier-dsl.md"
       - "docs/harnesses/**"
       - "docs/research/**"
@@ -68,5 +72,6 @@ jobs:
       - uses: DeLaGuardo/setup-clojure@13.0
         with:
           cli: 1.12.2.1565
+          bb: 1.13.219
       - name: Run Clojure tests
         run: clojure -M:test

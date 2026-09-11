@@ -1,5 +1,6 @@
 (ns calliope.law.media-test
   (:require [calliope.law.media :as media]
+            [calliope.media.manifest :as manifest]
             [clojure.test :refer [deftest is]]))
 
 (def envelope
@@ -39,3 +40,22 @@
   (doseq [path ["absence/01234567.json" "text/song.md" "text/song.txt"]]
     (is (media/valid? :calliope.media/manifest-entry-v1 (assoc entry :path path))
         path)))
+
+(deftest runtime-and-law-validation-agree
+  (doseq [value [envelope (dissoc envelope :generated)
+                 (dissoc envelope :bytes-total) (assoc envelope :dataset/id "other")
+                 (assoc envelope :entries 0) (assoc envelope :unknown true)]]
+    (is (= (media/valid? :calliope.media/manifest-envelope-v1 value)
+           (manifest/envelope? value))))
+  (doseq [path ["absence/one.mp3" "absence/ONE.MP3" "text/song.txt"
+                "../outside.mp3" "./song.mp3" "a/../../song.mp3"
+                "/song.mp3" "C:/song.mp3" "a\\song.mp3" "a//song.mp3"
+                "a/./song.mp3" "a/../song.mp3" "a/song.mp3/"
+                "a/line\nsong.mp3"]]
+    (let [value (assoc entry :path path)]
+      (is (= (media/valid? :calliope.media/manifest-entry-v1 value)
+             (manifest/entry? value)) path)))
+  (doseq [value [(dissoc entry :sha256) (assoc entry :sha256 "bad")
+                 (assoc entry :bytes 0) (assoc entry :unknown true) nil]]
+    (is (false? (media/valid? :calliope.media/manifest-entry-v1 value)))
+    (is (false? (manifest/entry? value)))))
