@@ -279,7 +279,8 @@
                                       (make-array java.nio.file.attribute.FileAttribute 0))]
        (try
          (write-temp! (.toFile temp))
-         (Files/move temp (.toPath target) (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))
+         (Files/move temp (.toPath target)
+                     (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING StandardCopyOption/ATOMIC_MOVE]))
          (finally (Files/deleteIfExists temp))))))
 
 #?(:clj

@@ -25,6 +25,19 @@ that legacy field, and none carries a full SHA-256.
 | Readable text names escape the songbook namespace | Restrict the readable-name exemption to `text/`; elsewhere require a matching content address | Runtime/Malli reject root and other-directory text names; a stray README causes generation to fail without replacing the manifest |
 | External ingestion leaves git metadata stale | Mirror verified JSON and the full manifest into repository `tracks/` before recording run completion | Real Babashka ingestion populates both roots, keeps large media external, and refuses symlinked projection targets; JVM tests reject corrupt JSON and preserve hard-link targets |
 | Mirroring retains retired JSON metadata | Remove target JSON paths omitted from the source manifest before publishing that manifest | A two-run JVM regression retires old metadata and introduces a new address; real Babashka ingestion removes obsolete nested metadata |
+| File replacement does not request atomicity | Require `ATOMIC_MOVE` for manifests and mirrored JSON; unsupported providers fail without fallback | Existing generation, hard-link preservation, and real Babashka ingestion regressions pass with atomic replacement |
+
+The subsequent retirement-policy suggestion (`discussion_r3994218793`) was
+adjudicated without changing the verifier. Metadata mirroring reconciles a
+derived copy; it does not retire source assets or discovery receipts. Missing
+historical assets remain reportable under ADR-002. A direct Babashka reproduction
+reported a removed JSON path and cleared it after restoring the original bytes,
+without changing any receipt. An explicit retirement lifecycle needs its own
+accepted contract; absence alone must not silently make history inactive.
+
+Projection writes are atomic per file, not a transaction across the directory.
+A failed run can leave partial local projection changes and must be inspected or
+retried before committing; ingestion does not append a run-completed event.
 
 The runtime and Malli law share dependency-free path and hash predicates.
 Reader validation stays available to Babashka without requiring Malli. Scanner
