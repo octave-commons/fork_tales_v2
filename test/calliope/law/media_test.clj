@@ -68,3 +68,10 @@
       (is (false? (manifest/entry? value)))))
   (doseq [path ["text/friendly.md" "text/friendly.txt"]]
     (is (manifest/entry? (assoc entry :path path)))))
+
+(deftest readable-text-names-are-confined-to-the-songbook
+  (doseq [path ["README.md" "notes.txt" "other/song.md" "text-other/song.txt"]]
+    (is (false? (manifest/entry? (assoc entry :path path))))
+    (is (false? (media/valid? :calliope.media/manifest-entry-v1 (assoc entry :path path)))))
+  (is (manifest/entry? (assoc entry :path "text/nested/song.md")))
+  (is (manifest/entry? (assoc entry :path "other/aaaaaaaa.md"))))

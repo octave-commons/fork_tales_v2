@@ -271,6 +271,13 @@
       (is (thrown? clojure.lang.ExceptionInfo (dataset/generate-manifest! root)))
       (is (= before (slurp (dataset/manifest-path root)))))))
 
+(deftest manifest-generation-rejects-stray-readable-text
+  (with-dataset [root]
+    (let [before (slurp (dataset/manifest-path root))]
+      (spit (File. root "README.md") "stray")
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/generate-manifest! root)))
+      (is (= before (slurp (dataset/manifest-path root)))))))
+
 (deftest ledger-verification-retains-every-historical-receipt
   (with-dataset [root]
     (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/2cf24dba.mp3")

@@ -36,7 +36,8 @@
   [{:keys [path sha256]}]
   (and (string? path) (string? sha256)
        (boolean (re-matches sha256-pattern sha256))
-       (or (boolean (re-find #"\.(md|txt)$" (str/lower-case path)))
+       (or (and (str/starts-with? path "text/")
+                (boolean (re-find #"\.(md|txt)$" (str/lower-case path))))
            (let [prefix (second (re-find #"(?:^|/)([0-9a-f]{8})\.[^.]+$" path))]
              (and (some? prefix) (= prefix (subs sha256 0 8)))))))
 
