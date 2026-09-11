@@ -66,5 +66,19 @@
             (dataset/generate-manifest! root)
             (let [result (run! "verify" "--ledger")]
               (is (not (zero? (:exit result))))
-              (is (re-find #":hash-drift" (:out result))))))))
+              (is (re-find #":hash-drift" (:out result)))))))
+        (testing "Babashka assembly rejects an in-root media alias"
+          (let [lyrics (File. repo "docs/lyrics")
+                copy (File. root "text/a.txt")
+                victim (File. root "absence/one.mp3")
+                before (slurp victim)]
+            (.mkdirs lyrics)
+            (spit (File. lyrics "a.txt") "songbook")
+            (is (zero? (:exit (run! "assemble"))))
+            (is (= "songbook" (slurp copy)))
+            (Files/delete (.toPath copy))
+            (Files/createSymbolicLink (.toPath copy) (.toPath victim)
+                                      (make-array java.nio.file.attribute.FileAttribute 0))
+            (is (not (zero? (:exit (run! "assemble")))))
+            (is (= before (slurp victim))))))
       (finally (fixture/delete-tree! repo)))))

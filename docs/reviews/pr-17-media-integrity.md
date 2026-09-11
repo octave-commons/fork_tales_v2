@@ -16,16 +16,17 @@ that legacy field, and none carries a full SHA-256.
 | Manifest paths escape the root | Reject traversal and non-POSIX paths; compare canonical paths by path components before reading or hashing | Absolute, dot, parent, Windows-style, and sibling-prefix symlink escape tests |
 | Ledger verification ignores full hashes | Report `:hash-drift` and make CLI ledger verification fail | Regenerate the manifest after a same-size content change; current bytes pass manifest verification but fail the historical hash check |
 | Historical SHA-8 receipts bypass hash checks | Compare full SHA-256 when present, otherwise the recorded SHA-8 prefix | JVM and real CLI regressions cover both formats and full-hash precedence; the committed manifest/ledger comparison has zero drift |
+| Assembly follows an in-root destination symlink | Reject every symlink component beneath the selected root before copying | JVM tests cover file and directory links; the real Babashka CLI rejects a songbook path linked to an unrelated MP3 without altering it |
 
 The runtime and Malli law share dependency-free path and hash predicates.
 Reader validation stays available to Babashka without requiring Malli. Scanner
 and law accept the same case-insensitive extensions. Manifest generation refuses
 invalid/empty output. Directory walks do not follow symlink cycles, and assembly
-rejects destination links that would overwrite source lyrics.
+rejects all symlinked write destinations and source/destination overlap.
 
 ## Verification
 
-- `clojure -M:test`: 97 tests, 440 assertions, zero failures and errors.
+- `clojure -M:test`: 98 tests, 448 assertions, zero failures and errors.
 - `clj-kondo --lint src/calliope/media src/calliope/law/media.cljc test/calliope/media test/calliope/law/media_test.clj test/calliope/test_runner.clj scripts/media.clj`: zero errors and warnings.
 - JVM AOT compilation succeeded for `calliope.media.manifest`,
   `calliope.media.dataset`, and `calliope.law.media`.

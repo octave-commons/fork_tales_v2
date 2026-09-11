@@ -7,11 +7,10 @@
   synchronized, while the manifest makes their identity and integrity portable."
   (:require [calliope.media.manifest :as manifest]
             #?(:clj [clojure.edn :as edn])
-            #?(:clj [clojure.java.io :as io])
             [clojure.string :as str])
   #?(:clj (:import [java.io BufferedInputStream BufferedReader File FileInputStream InputStreamReader PushbackReader StringReader]
                    [java.math BigInteger]
-                   [java.nio.file Files FileVisitOption Path]
+                   [java.nio.file CopyOption Files FileVisitOption Path StandardCopyOption]
                    [java.security MessageDigest]
                    [java.time Instant])))
 
@@ -146,6 +145,16 @@
             vec))))
 
 #?(:clj
+   (defn- resolve-write-file [root relpath]
+     (let [target (resolve-file root relpath)
+           base (.getCanonicalFile (File. (str root)))]
+       (doseq [^File part (rest (reductions (fn [^File parent segment] (File. parent ^String segment))
+                                           base (str/split relpath #"/")))]
+         (when (Files/isSymbolicLink (.toPath part))
+           (throw (ex-info "Symlinked dataset write destination" {:path (str part)}))))
+       target)))
+
+#?(:clj
    (defn assemble-text!
      "Copy the canonical songbook projection (docs/lyrics/*.md|*.txt) from
      `repo-root` into `<root>/text/`, overwriting in place and removing stale
@@ -156,21 +165,25 @@
        (when-not (.isDirectory source)
          (throw (ex-info "Songbook projection missing — run `bb scripts/corpus.clj project` first."
                          {:dir (str source)})))
-       (let [dest (resolve-file root text-dir)
+       (let [dest (resolve-write-file root text-dir)
              files (or (.listFiles source)
                        (throw (ex-info "Cannot list songbook projection" {:dir (str source)})))
              supported (filterv (fn [^File f]
                                   (and (.isFile f)
                                        (contains? text-extensions (extension (.getName f))))) files)
              names (set (map #(.getName ^File %) supported))]
-         (when (= (.getCanonicalFile source) dest)
+         (when (or (.startsWith (.toPath dest) (.toPath (.getCanonicalFile source)))
+                   (.startsWith (.toPath (.getCanonicalFile source)) (.toPath dest)))
            (throw (ex-info "Dataset text directory overlaps songbook source" {:dir (str dest)})))
          (.mkdirs dest)
          (doseq [^File f supported]
-           (let [target (resolve-file root (str text-dir "/" (.getName f)))]
+           (let [target (resolve-write-file root (str text-dir "/" (.getName f)))]
              (when (.startsWith (.toPath target) (.toPath (.getCanonicalFile source)))
                (throw (ex-info "Dataset text file overlaps songbook source" {:path (str target)})))
-             (io/copy f target)))
+             ;; Replace the destination entry rather than writing through an
+             ;; existing inode that may also be hard-linked elsewhere.
+             (Files/copy (.toPath f) (.toPath target)
+                         (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))))
          (doseq [^File f (files-under dest)
                  :when (and (.isFile f)
                             (contains? text-extensions (extension (.getName f)))

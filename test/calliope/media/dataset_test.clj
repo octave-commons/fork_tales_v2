@@ -243,3 +243,29 @@
                  :actual (subs (:sha256 (dataset/entry-for (dataset/read-manifest root)
                                                          "absence/one.mp3")) 0 8)}]
                (:hash-drift report)))))))
+
+(deftest assembly-rejects-in-root-symlinked-write-components
+  (doseq [link-kind [:file :directory]]
+    (let [repo (temp-dir)
+          root (temp-dir)]
+      (try
+        (let [lyrics (File. repo "docs/lyrics")
+              media (File. root "audio")
+              victim (File. media "a.txt")
+              text (File. root "text")]
+          (.mkdirs lyrics)
+          (.mkdirs media)
+          (spit (File. lyrics "a.txt") "songbook")
+          (spit victim "unrelated media")
+          (when (= :file link-kind) (.mkdirs text))
+          (Files/createSymbolicLink
+           (.toPath (if (= :file link-kind) (File. text "a.txt") text))
+           (.toPath (if (= :file link-kind) victim media))
+           (make-array java.nio.file.attribute.FileAttribute 0))
+          (is (thrown? clojure.lang.ExceptionInfo (dataset/assemble-text! repo root)) (name link-kind))
+          (is (= "unrelated media" (slurp victim))))
+        (finally
+          ;; Remove directory links before the generic fixture cleanup walks them.
+          (when (= :directory link-kind) (Files/deleteIfExists (.toPath (File. root "text"))))
+          (delete-tree! repo)
+          (delete-tree! root))))))
