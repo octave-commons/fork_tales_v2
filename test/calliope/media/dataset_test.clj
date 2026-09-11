@@ -91,6 +91,26 @@
           (is (= "previous metadata" (slurp victim)))
           (finally (delete-tree! repo)))))))
 
+(deftest metadata-mirror-removes-retired-json-between-runs
+  (with-dataset [root]
+    (let [repo (temp-dir)
+          tracked (str repo "/tracks")
+          retired "absence/ea3bd73e.json"]
+      (try
+        (dataset/mirror-metadata! repo root)
+        (is (.isFile (File. tracked retired)))
+        (Files/delete (.toPath (File. root retired)))
+        (let [replacement (write-bytes! root "new.json" (.getBytes "replacement" "UTF-8"))
+              path (str "nested/" (subs (dataset/sha256-of-file replacement) 0 8) ".json")]
+          (write-bytes! root path (.getBytes "replacement" "UTF-8"))
+          (Files/delete (.toPath replacement))
+          (dataset/generate-manifest! root)
+          (dataset/mirror-metadata! repo root)
+          (is (not (.exists (File. tracked retired))))
+          (is (= "replacement" (slurp (File. tracked path))))
+          (is (= (dataset/read-manifest root) (dataset/read-manifest tracked))))
+        (finally (delete-tree! repo))))))
+
 (deftest ledger-verification-checks-media-and-metadata-events
   (with-dataset [root]
     (let [report (dataset/verify-against-ledger

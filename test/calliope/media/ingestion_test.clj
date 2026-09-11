@@ -92,6 +92,7 @@
         (spit audio "hello")
         (spit metadata "{\"title\":\"song\"}")
         (spit victim "unrelated")
+        (fixture/write-bytes! tracked "retired/nested/deadbeef.json" (.getBytes "stale" "UTF-8"))
         (.mkdirs (.getParentFile script))
         (io/copy (io/file "scripts/corpus.clj") script)
         (let [index (File. repo "ledgers/projections/songs-v1.edn")]
@@ -121,6 +122,7 @@
                 (is (= (slurp (File. root dataset/manifest-name)) (slurp manifest-target)))
                 (is (= (slurp metadata) (slurp json-target)))
                 (is (= "meta" (slurp (File. tracked "absence/ea3bd73e.json"))))
+                (is (not (.exists (File. tracked "retired/nested/deadbeef.json"))))
                 (is (not (.exists (File. tracked "song/2cf24dba.mp3"))))
                 (is (not (.exists (File. tracked "absence/486ea462.jpeg"))))
                 (is (not (.exists (File. tracked "text/song.md"))))

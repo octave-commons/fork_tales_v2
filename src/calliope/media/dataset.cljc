@@ -323,7 +323,8 @@
          (when (or (.startsWith (.toPath source-root) (.toPath target-root))
                    (.startsWith (.toPath target-root) (.toPath source-root)))
            (throw (ex-info "Metadata projection roots overlap" {:root root :target (str target-root)})))
-         (let [{:keys [entries generated]} (read-manifest root)]
+         (let [{:keys [entries generated]} (read-manifest root)
+               json-paths (into #{} (comp (filter #(= "json" (extension (:path %)))) (map :path)) entries)]
            (resolve-write-file target-root manifest-name)
            (Files/createDirectories (.toPath target-root) (make-array java.nio.file.attribute.FileAttribute 0))
            (doseq [{:keys [path bytes sha256]} entries
@@ -339,6 +340,11 @@
                               (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))
                   (when-not (and (= bytes (.length temp)) (= sha256 (sha256-of-file temp)))
                     (throw (ex-info "Metadata bytes disagree with manifest" {:path path})))))))
+           (doseq [^File file (files-under target-root)
+                   :when (and (.isFile file) (= "json" (extension (.getName file))))
+                   :let [path (relative-path target-root file)]
+                   :when (not (contains? json-paths path))]
+             (Files/delete (.toPath (resolve-write-file target-root path))))
            (write-manifest-entries! target-root entries generated)))))
    :cljs
    (defn mirror-metadata! [& _]

@@ -24,6 +24,7 @@ that legacy field, and none carries a full SHA-256.
 | Manifest generation follows aliases | Guard the manifest destination and replace it from a temporary file | JVM and CLI symlink tests preserve outside files; replacing a hard-linked manifest preserves the other link's contents |
 | Readable text names escape the songbook namespace | Restrict the readable-name exemption to `text/`; elsewhere require a matching content address | Runtime/Malli reject root and other-directory text names; a stray README causes generation to fail without replacing the manifest |
 | External ingestion leaves git metadata stale | Mirror verified JSON and the full manifest into repository `tracks/` before recording run completion | Real Babashka ingestion populates both roots, keeps large media external, and refuses symlinked projection targets; JVM tests reject corrupt JSON and preserve hard-link targets |
+| Mirroring retains retired JSON metadata | Remove target JSON paths omitted from the source manifest before publishing that manifest | A two-run JVM regression retires old metadata and introduces a new address; real Babashka ingestion removes obsolete nested metadata |
 
 The runtime and Malli law share dependency-free path and hash predicates.
 Reader validation stays available to Babashka without requiring Malli. Scanner
@@ -33,7 +34,7 @@ rejects all symlinked write destinations and source/destination overlap.
 
 ## Verification
 
-- `clojure -M:test`: 107 tests, 554 assertions, zero failures and errors.
+- `clojure -M:test`: 108 tests, 559 assertions, zero failures and errors.
 - `clj-kondo --lint src/calliope/media src/calliope/law/media.cljc test/calliope/media test/calliope/law/media_test.clj test/calliope/test_runner.clj scripts/media.clj`: zero errors and warnings.
 - `clj-kondo --lint scripts/corpus.clj`: zero errors and warnings. Scripts are
   linted separately because they deliberately share the standalone `user` namespace.
