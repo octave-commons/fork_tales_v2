@@ -131,14 +131,15 @@
                                      :else (throw (ex-info "Invalid ledger event form"
                                                            {:form-index (inc (count events))})))))))))
           ledger-failure? (and ledger-report
-                               (or (seq (:missing-from-manifest ledger-report))
+                               (or (seq (:untracked-in-ledger ledger-report))
+                                   (seq (:missing-from-manifest ledger-report))
                                    (seq (:bytes-drift ledger-report))
                                    (seq (:hash-drift ledger-report))))]
       (pprint/pprint report)
       (when ledger-report
         (pprint/pprint ledger-report)
         (when (seq (:untracked-in-ledger ledger-report))
-          (println "WARNING: manifest entries lack historical ledger events.")))
+          (println "ERROR: manifest entries lack historical ledger events.")))
       (when (or (not (:ok report)) ledger-failure?)
         (System/exit 1)))))
 

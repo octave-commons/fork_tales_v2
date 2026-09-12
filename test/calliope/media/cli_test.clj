@@ -9,6 +9,12 @@
   (:import [java.io File]
            [java.nio.file Files]))
 
+(defn discovery-events [root]
+  (mapv (fn [{:keys [path] :as entry}]
+          (assoc entry :event/type :track/discovered :dest path
+                 :asset (keyword (last (str/split path #"\.")))))
+        (:entries (dataset/read-manifest root))))
+
 (deftest cli-sync-and-ledger-integrity-boundaries
   (let [repo (fixture/temp-dir)
         root (str repo "/tracks")
@@ -83,7 +89,9 @@
          (doseq [hash-key [:sha256 :sha8]]
           (fixture/dataset! root)
           (let [entry (dataset/entry-for (dataset/read-manifest root) "absence/2cf24dba.mp3")
-                ledger (File. repo "ledgers/ingest.edn")]
+                ledger (File. repo "ledgers/ingest.edn")
+                other-receipts (remove #(= "absence/2cf24dba.mp3" (:dest %)) (discovery-events root))
+                add-other-receipts! #(spit ledger (str "\n" (str/join "\n" (map pr-str other-receipts)) "\n") :append true)]
             (.mkdirs (.getParentFile ledger))
             (spit ledger (pr-str {:event/type :track/discovered :asset :mp3
                                  :dest "tracks/absence/2cf24dba.mp3"
@@ -91,15 +99,30 @@
                                  hash-key (if (= :sha8 hash-key)
                                             (subs (:sha256 entry) 0 8)
                                             (:sha256 entry))}))
+            (add-other-receipts!)
             (is (zero? (:exit (run! "verify" "--ledger"))))
             (spit ledger (pr-str {:event/type :track/discovered :asset :mp3
                                  :dest "tracks/absence/2cf24dba.mp3" :bytes (:bytes entry)
                                  hash-key (if (= :sha8 hash-key) "00000000"
                                             (str (subs (:sha256 entry) 0 8)
                                                  (apply str (repeat 56 "0"))))}))
+            (add-other-receipts!)
             (let [result (run! "verify" "--ledger")]
               (is (not (zero? (:exit result))))
               (is (re-find #":hash-drift" (:out result)))))))
+        (testing "ledger verification requires media receipts but excludes songbook text"
+          (fixture/dataset! root)
+          (let [ledger (File. repo "ledgers/ingest.edn")
+                events (discovery-events root)]
+            (fixture/write-bytes! root "text/song.md" (.getBytes "song" "UTF-8"))
+            (dataset/generate-manifest! root)
+            (spit ledger (str/join "\n" (map pr-str events)))
+            (is (zero? (:exit (run! "verify" "--ledger"))))
+            (doseq [omitted events]
+              (spit ledger (str/join "\n" (map pr-str (remove #{omitted} events))))
+              (let [result (run! "verify" "--ledger")]
+                (is (not (zero? (:exit result))))
+                (is (str/includes? (:out result) (:dest omitted)))))))
         (testing "invalid ledger forms cannot terminate parsing before later receipts"
           (fixture/dataset! root)
           (let [ledger (File. repo "ledgers/ingest.edn")
