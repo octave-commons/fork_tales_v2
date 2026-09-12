@@ -1,0 +1,25 @@
+Picked up JAVA_TOOL_OPTIONS: -Duser.home=/workspace/scratch/3655842e43cf/toolchain/jvm-home -Djavax.net.ssl.trustStore=/workspace/scratch/3655842e43cf/toolchain/cacerts -Djavax.net.ssl.trustStorePassword=changeit -XX:ActiveProcessorCount=4 -Xmx2g -Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=43075 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=43075 -Dhttp.nonProxyHosts=localhost|127.*|0.0.0.0|[::1]
+Picked up JAVA_TOOL_OPTIONS: -Duser.home=/workspace/scratch/3655842e43cf/toolchain/jvm-home -Djavax.net.ssl.trustStore=/workspace/scratch/3655842e43cf/toolchain/cacerts -Djavax.net.ssl.trustStorePassword=changeit -XX:ActiveProcessorCount=4 -Xmx2g -Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=43075 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=43075 -Dhttp.nonProxyHosts=localhost|127.*|0.0.0.0|[::1]
+
+Testing calliope.classifier.adapters-test
+
+Testing calliope.classifier.dsl-test
+
+Testing calliope.classifier.main-test
+
+Testing calliope.classifier.runtime-test
+
+Testing calliope.law.media-test
+
+Testing calliope.media.dataset-test
+
+Testing calliope.media.cli-test
+
+Testing calliope.media.ingestion-test
+
+Testing calliope.reconstruction.handoff-test
+
+Testing calliope.reconstruction.paths-test
+
+Ran 112 tests containing 699 assertions.
+0 failures, 0 errors.
