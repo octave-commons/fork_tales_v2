@@ -34,6 +34,7 @@ that legacy field, and none carries a full SHA-256.
 | Remote option typos select the default destination | Validate complete command arguments and reject invalid remote values | Real sync/check tests reject typos, missing/duplicate flags, extra values and invalid environment destinations without invoking rclone |
 | A nil ledger form hides later receipts | Use a distinct EOF marker and require event maps with keyword types | Real CLI tests reject nil, false, scalars, vectors and malformed event maps before later contradictions can be skipped; all 94,041 historical forms remain compatible |
 | Ledger verification accepts assets without receipts | Treat untracked media/metadata as verification failure; songbook text stays excluded | Real CLI tests remove each MP3/JPEG/JSON receipt in turn and require failure, while a fully receipted dataset plus songbook text passes |
+| Concurrent transfers can publish the catalog too early | Transfer only content first, then copy the manifest after success | Recording rclone tests verify content excludes the manifest, publication follows success, and either-stage failures prevent a success claim |
 
 The unsupported-extension suggestion (`discussion_r3994361776`) did not
 reproduce: the reviewed pattern already has an end anchor. Direct Babashka
@@ -59,7 +60,7 @@ rejects all symlinked write destinations and source/destination overlap.
 
 ## Verification
 
-- `clojure -M:test`: 112 tests, 688 assertions, zero failures and errors.
+- `clojure -M:test`: 112 tests, 699 assertions, zero failures and errors.
 - `clj-kondo --lint src/calliope/media src/calliope/law/media.cljc test/calliope/media test/calliope/law/media_test.clj test/calliope/test_runner.clj scripts/media.clj`: zero errors and warnings.
 - `clj-kondo --lint scripts/corpus.clj`: zero errors and warnings. Scripts are
   linted separately because they deliberately share the standalone `user` namespace.

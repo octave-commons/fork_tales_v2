@@ -64,13 +64,16 @@
     (println "ERROR: MANIFEST.edn is missing — run `bb scripts/media.clj manifest` first.")
     (System/exit 1)))
 
-(defn files-from! [root]
-  (let [manifest (media/read-manifest root)
+(defn files-from!
+  ([root] (files-from! root true))
+  ([root include-manifest?]
+   (let [manifest (media/read-manifest root)
         target (str (fs/path repo-root "target"))
-        path (str (fs/path target "media-files-from.txt"))]
+        path (str (fs/path target (if include-manifest? "media-files-from.txt" "media-content-files-from.txt")))]
     (fs/create-dirs target)
-    (spit path (str (str/join "\n" (concat (map :path (:entries manifest)) [media/manifest-name])) "\n"))
-    path))
+    (spit path (str (str/join "\n" (cond-> (mapv :path (:entries manifest))
+                                    include-manifest? (conj media/manifest-name))) "\n"))
+    path)))
 
 (defn run-rclone! [args]
   (when-not (fs/which "rclone")
@@ -144,15 +147,21 @@
         (System/exit 1)))))
 
 (defn sync! [args]
-  (let [{:keys [root]} (resolved-root)]
+  (let [{:keys [root]} (resolved-root)
+        destination (remote args)]
     (require-manifest! root)
     (let [report (media/verify root {:hash? true})]
       (when-not (:ok report)
         (pprint/pprint report)
         (println "ERROR: local dataset verification failed; remote was not synchronized.")
         (System/exit 1)))
-    (run-rclone! ["rclone" "sync" root (remote args) "--files-from" (files-from! root)
+    (run-rclone! ["rclone" "sync" root destination "--files-from" (files-from! root false)
                   "--transfers" "4" "--checkers" "8" "-v"])
+    (run-rclone! ["rclone" "copyto" (media/manifest-path root)
+                  (str destination (when-not (or (str/ends-with? destination "/")
+                                                  (str/ends-with? destination ":")) "/")
+                       media/manifest-name)
+                  "--ignore-times"])
     (println "Sync complete. Run `bb scripts/media.clj check` to verify the remote.")))
 
 (defn check! [args]

@@ -28,7 +28,14 @@
       (spit (File. repo "deps.edn") "{}")
       (.mkdirs (File. bin))
       (let [rclone (File. bin "rclone")]
-        (spit rclone "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CALLIOPE_RCLONE_LOG\"\n")
+        (spit rclone (str "#!/bin/sh\nrecorded_command=$1\n"
+                          "printf 'BEGIN\\n' >> \"$CALLIOPE_RCLONE_LOG\"\n"
+                          "printf '%s\\n' \"$@\" >> \"$CALLIOPE_RCLONE_LOG\"\n"
+                          "while [ \"$#\" -gt 0 ]; do\n"
+                          "  if [ \"$1\" = '--files-from' ]; then\n"
+                          "    shift\n    cat \"$1\" >> \"$CALLIOPE_RCLONE_LOG\"\n  fi\n  shift\ndone\n"
+                          "printf 'END\\n' >> \"$CALLIOPE_RCLONE_LOG\"\n"
+                          "if [ \"${CALLIOPE_RCLONE_FAIL:-}\" = \"$recorded_command\" ]; then exit 42; fi\n"))
         (.setExecutable rclone true))
       (fixture/dataset! root)
       (let [env (merge (into {} (System/getenv))
@@ -61,8 +68,23 @@
         (testing "intact files reach rclone"
           (let [result (run! "sync" "--remote" "fixture:media")]
             (is (zero? (:exit result)) (pr-str result))
-            (is (.exists log)))
+            (is (.exists log))
+            (let [calls (rest (str/split (slurp log) #"BEGIN\n"))]
+              (is (= 2 (count calls)))
+              (is (str/starts-with? (first calls) "sync\n"))
+              (is (not (str/includes? (first calls) "MANIFEST.edn")))
+              (is (str/starts-with? (second calls) "copyto\n"))
+              (is (str/includes? (second calls) "fixture:media/MANIFEST.edn"))))
           (Files/deleteIfExists (.toPath log)))
+        (testing "failed content transfer prevents manifest publication"
+          (doseq [failed-command ["sync" "copyto"]]
+            (let [result (shell/sh "bb" "--classpath" source (str script) "sync" "--remote" "fixture:media"
+                                   :dir repo :env (assoc env "CALLIOPE_RCLONE_FAIL" failed-command))
+                  calls (rest (str/split (slurp log) #"BEGIN\n"))]
+              (is (= 42 (:exit result)))
+              (is (= (if (= "sync" failed-command) 1 2) (count calls)))
+              (is (not (str/includes? (:out result) "Sync complete"))))
+            (Files/deleteIfExists (.toPath log))))
         (testing "incomplete roots preserve the prior catalog unless removal is explicit"
           (Files/delete (.toPath (File. root "absence/2cf24dba.mp3")))
           (is (not (zero? (:exit (run! "manifest")))))
