@@ -19,7 +19,15 @@ not imply access to Err's machine.
   projections.
 - `ledgers/projections/variants-v1.edn` — pass-2 same-title similarity signals.
   Similarity never silently becomes identity.
-- `tracks/` — corpus-linked audio, metadata, and artwork assets.
+- `tracks/` — the media dataset mount point (see ADR-002). `MANIFEST.edn` and
+  the per-track `*.json` Suno metadata are git-tracked; MP3/JPEG bytes and the
+  `text/` songbook projection are untracked dataset content synchronized
+  externally via rclone (`bb scripts/media.clj`). Any folder with a valid
+  `MANIFEST.edn` works as the dataset when selected via `CALLIOPE_MEDIA_ROOT`.
+  Track ingestion into an external root also projects its full manifest and
+  verified JSON metadata into repository `tracks/` for the next git commit.
+- `src/calliope/media/dataset.cljc` — pure dataset library (root resolution,
+  manifest read/write, verification).
 - `resources/classifiers/` — pure-data classifier and feature-extractor programs.
 - `src/calliope/law/` — Malli contracts only.
 - `src/calliope/classifier/` — DSL validation and JVM runtime adapters.
@@ -66,12 +74,25 @@ eta-mu kanban count
 eta-mu kanban list
 eta-mu kanban find ft-000b-define-media-workbench-domain-laws
 
+# Media dataset (ADR-002). Root: CALLIOPE_MEDIA_ROOT, default tracks/.
+bb scripts/media.clj where
+bb scripts/media.clj assemble
+bb scripts/media.clj manifest [--allow-removals]
+bb scripts/media.clj verify [--no-hash] [--ledger]
+bb scripts/media.clj sync [--remote <rclone-remote:path>]
+bb scripts/media.clj check [--remote <rclone-remote:path>]
+
 # Reconstruction lanes. Preflight first; both exit non-zero on failure.
 bb scripts/reconstruction/preflight.clj EVIDENCE...
 bb scripts/reconstruction/validate.clj PACKET...
 ```
 
 Use `--tasks-dir` only for an intentional override or discovery diagnostic.
+
+Manifest regeneration preserves the previous catalog when dataset files are
+missing. Rehydrate incomplete roots first. Use `manifest --allow-removals` only
+after deliberate removals, including deleted songbook sources; historical ledger
+verification still reports missing discovered assets.
 
 A non-dry classifier run also requires its declared endpoint and models. An
 unreachable service is unavailable, never a successful empty result.

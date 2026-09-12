@@ -22,6 +22,8 @@
                "-n" "calliope.classifier.dsl"
                "-n" "calliope.classifier.runtime"
                "-n" "calliope.classifier.main"
+               "-n" "calliope.media.dataset"
+               "-n" "calliope.law.media"
                "-t" "calliope\\..*-test"
                "--text" "--html" "--no-summary"]}
 

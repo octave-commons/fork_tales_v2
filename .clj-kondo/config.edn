@@ -1,0 +1,1 @@
+{:lint-as {calliope.media.dataset-test/with-dataset clojure.core/fn}}

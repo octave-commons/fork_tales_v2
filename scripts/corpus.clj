@@ -12,6 +12,11 @@
 ;; and compared with a line-level Levenshtein distance. Every cluster is
 ;; appended as a :doc/variant-cluster event — a graded signal, never a merge.
 ;;
+;; Pass 3: media assets are copied into the content-addressed dataset directory
+;; (default tracks/, override via CALLIOPE_MEDIA_ROOT) with a MANIFEST.edn
+;; projection; media bytes are synced externally (rclone), not tracked by git.
+;; External-root ingestion also mirrors JSON and the full manifest into tracks/.
+;;
 ;; Usage:
 ;;   bb scripts/corpus.clj ingest    scan roots, append events to the ledger
 ;;   bb scripts/corpus.clj project   rebuild docs/lyrics from the ledger
@@ -20,6 +25,7 @@
 
 (require '[babashka.fs :as fs]
          '[babashka.process :as p]
+         '[calliope.media.dataset :as media]
          '[clojure.edn :as edn]
          '[clojure.pprint :as pprint]
          '[clojure.string :as str])
@@ -239,18 +245,17 @@
                            :flags (vec (distinct (mapcat :flags group)))
                            :sources (vec (sort (map :path group)))})
                    (inc n) (+ dupes (dec (count group)))))
-          (do
-            (let [idx-file (str (fs/path projections-dir "songs-v1.edn"))]
-              (spit idx-file (with-out-str (pprint/pprint idx)))
-              (spit (str (fs/path lyrics-dir "index.edn"))
-                    (with-out-str (pprint/pprint idx)))
-              (append-event! {:event/id (uuid) :event/type :projection/computed
-                              :ts (now-iso) :projection :songs-v1 :run/id run-id
-                              :unique-songs n :duplicates-collapsed dupes
-                              :index idx-file})
-              (println "Projected" n "unique songs;"
-                       dupes "duplicate files collapsed."
-                       "Index:" idx-file))))))))
+          (let [idx-file (str (fs/path projections-dir "songs-v1.edn"))]
+            (spit idx-file (with-out-str (pprint/pprint idx)))
+            (spit (str (fs/path lyrics-dir "index.edn"))
+                  (with-out-str (pprint/pprint idx)))
+            (append-event! {:event/id (uuid) :event/type :projection/computed
+                            :ts (now-iso) :projection :songs-v1 :run/id run-id
+                            :unique-songs n :duplicates-collapsed dupes
+                            :index idx-file})
+            (println "Projected" n "unique songs;"
+                     dupes "duplicate files collapsed."
+                     "Index:" idx-file)))))))
 
 ;; ---------------------------------------------------------------- stats
 
@@ -363,10 +368,7 @@
                    "Index:" out))))))
 
 ;; ------------------------------------------------------------ tracks
-;; Pass 3: ingest audio assets (MP3 + JSON + artwork) from Suno Downloads
-;; into tracks/<slug>/<sha8>.* with git LFS. Links audio to the corpus index.
-
-(def tracks-dir (str (fs/path repo-root "tracks")))
+;; Pass 3: ingest audio assets (MP3 + JSON + artwork) from Suno Downloads.
 
 (defn load-songs-index []
   (let [f (str (fs/path projections-dir "songs-v1.edn"))]
@@ -377,11 +379,6 @@
   (into {} (for [[slug v] idx
                  src (:sources v)]
              [src slug])))
-
-(defn sha8-hex ^String [^bytes bs]
-  (let [md (.getInstance MessageDigest "SHA-256")]
-    (.update md bs)
-    (subs (format "%064x" (BigInteger. 1 (.digest md))) 0 8)))
 
 (defn suno-dirs []
   (let [root "/home/err/Downloads/Suno Downloads"]
@@ -408,13 +405,15 @@
     (when-not idx
       (println "ERROR: songs-v1.edn missing — run `bb scripts/corpus.clj project` first.")
       (System/exit 1))
-    (let [source->slug (build-source→slug idx)
+    (let [{:keys [root]} (media/resolve-root repo-root (System/getenv media/env-var))
+          source->slug (build-source→slug idx)
           dirs (suno-dirs)
           run-id (uuid)
           ts (now-iso)]
-      (fs/create-dirs tracks-dir)
+      (fs/create-dirs root)
       (append-event! {:event/id (uuid) :event/type :tracks/run-started
                       :run/id run-id :ts ts :dirs-planned (count dirs)})
+      (println "Dataset root:" root)
       (println "Scanning" (count dirs) "Suno directories…")
       (let [stats (loop [remaining dirs
                          slug-counts {}
@@ -432,18 +431,13 @@
                                                 :when slug]
                                             slug))]
                         (if matched-slug
-                          (let [dest-base (str (fs/path tracks-dir matched-slug))
-                                copied (atom 0)]
-                            (fs/create-dirs dest-base)
+                          (let [copied (atom 0)]
                             (doseq [f files
                                     :let [asset (classify-asset f)]
                                     :when asset]
-                              (let [bs (fs/read-all-bytes f)
-                                    h (sha8-hex bs)
-                                    ext (name asset)
-                                    dest (str (fs/path dest-base (str h "." ext)))]
-                                (when-not (fs/exists? dest)
-                                  (fs/copy f dest))
+                              (let [{:keys [path bytes sha256]}
+                                    (media/store-asset! root matched-slug f (name asset))
+                                    h (subs sha256 0 8)]
                                 (swap! copied inc)
                                 (append-event!
                                  {:event/id (uuid)
@@ -452,9 +446,11 @@
                                   :slug matched-slug
                                   :asset asset
                                   :sha8 h
+                                  :sha256 sha256
                                   :src f
-                                  :dest (str "tracks/" matched-slug "/" h "." ext)
-                                  :bytes (alength bs)})))
+                                  :dest path
+                                  :dataset/id media/dataset-id
+                                  :bytes bytes})))
                             (recur (rest remaining)
                                    (update slug-counts matched-slug (fnil inc 0))
                                    unmatched
@@ -472,19 +468,22 @@
                        :unmatched unmatched
                        :total-files total-files
                        :total-copied total-copied}))]
-        (append-event! {:event/id (uuid) :event/type :tracks/run-completed
-                        :run/id run-id :ts (now-iso)
-                        :slug-counts (:slug-counts stats)
-                        :unmatched-dirs (:unmatched stats)
-                        :total-files (:total-files stats)
-                        :total-copied (:total-copied stats)})
         ;; write tracks index
         (let [idx-out (str (fs/path projections-dir "tracks-v1.edn"))]
           (spit idx-out (with-out-str (pprint/pprint (:slug-counts stats))))
           (println "Tracks:" (:total-copied stats) "assets copied,"
                    (count (:slug-counts stats)) "songs matched,"
                    (:unmatched stats) "unmatched dirs.")
-          (println "Index:" idx-out))))))
+          (println "Index:" idx-out)
+          (let [{:keys [entries path]} (media/generate-manifest! root)]
+            (media/mirror-metadata! repo-root root)
+            (println "Manifest:" path "(" entries "entries)")))
+        (append-event! {:event/id (uuid) :event/type :tracks/run-completed
+                        :run/id run-id :ts (now-iso)
+                        :slug-counts (:slug-counts stats)
+                        :unmatched-dirs (:unmatched stats)
+                        :total-files (:total-files stats)
+                        :total-copied (:total-copied stats)})))))
 
 (let [cmd (first *command-line-args*)]
   (case cmd

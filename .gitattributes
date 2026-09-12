@@ -1,5 +1,6 @@
-tracks/**/*.mp3 filter=lfs diff=lfs merge=lfs -text
-tracks/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+# Media bytes under tracks/ are untracked dataset content (ADR-002): ignored
+# by git, synchronized externally via rclone. Only MANIFEST.edn and the
+# per-track *.json metadata are tracked.
 
 # Rheos writes one EDN event per line and only ever appends. Union-merge keeps
 # concurrent agents' events instead of forcing a conflict that loses history.

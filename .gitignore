@@ -6,6 +6,15 @@ out/
 .clj-kondo/
 .cpcache/
 
+# Media dataset bytes (ADR-002): untracked, rclone-synced. MANIFEST.edn and
+# per-track *.json metadata stay tracked.
+tracks/**/*.mp3
+tracks/**/*.jpeg
+tracks/text/
+
+# Machine-local eta-mu actor ledgers.
+.eta-mu/
+
 # The generated board.json is a lossy diagnostic output (AGENTS.md, Rheos board
 # discipline). The .events/ ledger is NOT ignored: it is Rheos's append-only
 # record of every transition, frontmatter edit, and comment, and ledger
