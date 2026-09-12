@@ -42,6 +42,13 @@
             (is (zero? (:exit result)) (pr-str result))
             (is (.exists log)))
           (Files/deleteIfExists (.toPath log)))
+        (testing "incomplete roots preserve the prior catalog unless removal is explicit"
+          (Files/delete (.toPath (File. root "absence/2cf24dba.mp3")))
+          (is (not (zero? (:exit (run! "manifest")))))
+          (is (= pristine (slurp (dataset/manifest-path root))))
+          (is (zero? (:exit (run! "manifest" "--allow-removals"))))
+          (is (nil? (dataset/entry-for (dataset/read-manifest root) "absence/2cf24dba.mp3")))
+          (is (zero? (:exit (run! "verify")))))
         (doseq [change [:missing :size :hash :manifest :timestamp]]
           (fixture/dataset! root)
           (spit (dataset/manifest-path root) pristine)

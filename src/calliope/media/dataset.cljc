@@ -265,6 +265,8 @@
                                {:line 1 :path path})))
              (when-not (= (count entries) (count (set (map :path entries))))
                (throw (ex-info "Malformed manifest: duplicate entry paths" {:path path})))
+             (when-not (= (mapv :path entries) (vec (sort (map :path entries))))
+               (throw (ex-info "Malformed manifest: entries are not sorted by path" {:path path})))
              {:dataset/id (:dataset/id envelope)
               :schema (:schema envelope)
               :generated (:generated envelope)
@@ -312,18 +314,28 @@
 
 #?(:clj
    (defn write-manifest!
-     "Scan `root` and replace its manifest without following destination aliases."
-     [root {:keys [generated]}]
-     (write-manifest-entries! root (scan-entries root) generated))
+     "Scan `root` and replace its manifest. Missing prior entries require
+     explicit :allow-removals? true; incomplete datasets cannot silently shrink it."
+     [root {:keys [generated allow-removals?]}]
+     (let [target (resolve-write-file root manifest-name)
+           entries (scan-entries root)
+           paths (set (map :path entries))
+           previous (when (.exists target) (read-manifest root))
+           removed (->> (:entries previous) (map :path) (remove paths) vec)]
+       (when (and (seq removed) (not (true? allow-removals?)))
+         (throw (ex-info "Refusing to remove missing manifest entries; restore the dataset or explicitly allow removals"
+                         {:missing-from-dataset removed :path (str target)})))
+       (write-manifest-entries! root entries generated)))
    :cljs
    (defn write-manifest! [& _]
      (throw (ex-info "Media datasets require a JVM filesystem" {}))))
 
 (defn generate-manifest!
   "Write a manifest stamped with the current ISO-8601 instant."
-  [root]
-  #?(:clj (write-manifest! root {:generated (str (Instant/now))})
-     :cljs (throw (ex-info "Media datasets require a JVM filesystem" {:root root}))))
+  ([root] (generate-manifest! root {}))
+  ([root options]
+   #?(:clj (write-manifest! root (assoc options :generated (str (Instant/now))))
+      :cljs (throw (ex-info "Media datasets require a JVM filesystem" {:root root :options options})))))
 
 #?(:clj
    (defn mirror-metadata!

@@ -11,7 +11,7 @@
            [java.nio.file Files]))
 
 (deftest track-ingestion-records-only-verified-contained-bytes
-  (doseq [scenario [:new :intact :truncated :same-size :directory-link :file-link]]
+  (doseq [scenario [:new :intact :truncated :same-size :directory-link :file-link :incomplete]]
     (let [repo (fixture/temp-dir)
           root (str repo "/tracks")
           input (File. repo "input")
@@ -34,6 +34,9 @@
           (spit index (pr-str {"song" {:sources [(str source)]}})))
         (spit ledger "{:event/type :fixture/anchor}\n")
         (.mkdirs (File. root))
+        (when (= :incomplete scenario)
+          (fixture/dataset! root)
+          (Files/delete (.toPath (File. root "absence/486ea462.jpeg"))))
         (if (= :directory-link scenario)
           (Files/createSymbolicLink (.toPath (File. root "song")) (.toPath outside)
                                     (make-array java.nio.file.attribute.FileAttribute 0))
@@ -45,7 +48,9 @@
           :file-link (Files/createSymbolicLink (.toPath target) (.toPath victim)
                                               (make-array java.nio.file.attribute.FileAttribute 0))
           nil)
-        (let [program (str "(binding [*command-line-args* []] (load-file " (pr-str (str script)) "))\n"
+        (let [prior-manifest (when (.exists (File. root dataset/manifest-name))
+                               (slurp (File. root dataset/manifest-name)))
+              program (str "(binding [*command-line-args* []] (load-file " (pr-str (str script)) "))\n"
                            "(with-redefs [suno-dirs (constantly " (pr-str [(str input)]) ")] (tracks!))")
               result (shell/sh "bb" "--classpath" classpath "-e" program
                                :dir repo :env (assoc (into {} (System/getenv)) "CALLIOPE_MEDIA_ROOT" root))
@@ -62,8 +67,13 @@
               (is (:ok (dataset/verify root {:hash? true}))))
             (do
               (is (not (zero? (:exit result))) (str scenario " " result))
-              (is (empty? discoveries) "No receipt may claim unverified source bytes")
-              (is (not (.exists (File. root dataset/manifest-name))))
+              (if (= :incomplete scenario)
+                (do
+                  (is (= prior-manifest (slurp (File. root dataset/manifest-name))))
+                  (is (not-any? #(= :tracks/run-completed (:event/type %)) events)))
+                (do
+                  (is (empty? discoveries) "No receipt may claim unverified source bytes")
+                  (is (not (.exists (File. root dataset/manifest-name))))))
               (when (= :directory-link scenario)
                 (is (not (.exists (File. outside "2cf24dba.mp3")))))
               (when (contains? #{:truncated :same-size} scenario)

@@ -23,7 +23,8 @@
 (def repo-root (media/find-repo-root *file*))
 
 (defn usage []
-  (println "usage: bb scripts/media.clj [where|assemble|manifest|verify|sync|check]"))
+  (println "usage: bb scripts/media.clj [where|assemble|manifest|verify|sync|check]")
+  (println "  manifest [--allow-removals]  omit old paths only after deliberate removal"))
 
 (defn resolved-root []
   (media/resolve-root repo-root (System/getenv media/env-var)))
@@ -79,11 +80,14 @@
   (let [{:keys [root]} (resolved-root)
         n (media/assemble-text! repo-root root)]
     (println "Assembled" n "songbook files into" (str (fs/path root media/text-dir)))
-    (println "Run `bb scripts/media.clj manifest` next.")))
+    (println "Run `bb scripts/media.clj manifest` next; use --allow-removals only for deliberate removals.")))
 
-(defn manifest! []
+(defn manifest! [args]
+  (when (seq (remove #{"--allow-removals"} args))
+    (usage)
+    (System/exit 1))
   (let [{:keys [root]} (resolved-root)
-        {:keys [entries bytes-total path]} (media/generate-manifest! root)]
+        {:keys [entries bytes-total path]} (media/generate-manifest! root {:allow-removals? (boolean (some #{"--allow-removals"} args))})]
     (println "Entries:" entries)
     (println "Bytes total:" bytes-total)
     (println "Manifest:" path)))
@@ -137,7 +141,7 @@
   (case command
     "where" (where!)
     "assemble" (assemble!)
-    "manifest" (manifest!)
+    "manifest" (manifest! args)
     "verify" (verify! args)
     "sync" (sync! args)
     "check" (check! args)

@@ -29,6 +29,8 @@ that legacy field, and none carries a full SHA-256.
 | Atomic replacements make shared files owner-only | Preserve existing POSIX permissions; new targets use ordinary readable creation modes subject to umask | JVM tests preserve shared modes across manifest regeneration and JSON mirroring, including copies from private sources |
 | Manifest generation time accepts arbitrary strings | Share an ISO-8601 instant predicate between runtime and Malli | Valid offsets and fractional seconds pass; invalid dates, times, empty strings and missing zones fail; real sync rejects malformed provenance |
 | Missing or mistyped commands exit successfully | Default CLI dispatch exits nonzero; explicit help remains successful | Real Babashka tests cover no command, a typo, and help without invoking rclone |
+| Incomplete roots silently shrink the catalog | Compare scanned paths with the previous manifest; require explicit `--allow-removals` to omit prior paths | JVM tests cover all content classes; real CLI and automatic ingestion preserve prior manifests on incomplete roots |
+| Readers accept noncanonical path order | Require manifest entries in ascending path order | Reversed, otherwise valid entries fail both reading and verification |
 
 The subsequent retirement-policy suggestion (`discussion_r3994218793`) was
 adjudicated without changing the verifier. Metadata mirroring reconciles a
@@ -50,7 +52,7 @@ rejects all symlinked write destinations and source/destination overlap.
 
 ## Verification
 
-- `clojure -M:test`: 110 tests, 612 assertions, zero failures and errors.
+- `clojure -M:test`: 112 tests, 640 assertions, zero failures and errors.
 - `clj-kondo --lint src/calliope/media src/calliope/law/media.cljc test/calliope/media test/calliope/law/media_test.clj test/calliope/test_runner.clj scripts/media.clj`: zero errors and warnings.
 - `clj-kondo --lint scripts/corpus.clj`: zero errors and warnings. Scripts are
   linted separately because they deliberately share the standalone `user` namespace.

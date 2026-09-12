@@ -22,6 +22,7 @@
   (write-bytes! root "absence/2cf24dba.mp3" (.getBytes "hello" "UTF-8"))
   (write-bytes! root "absence/486ea462.jpeg" (.getBytes "world" "UTF-8"))
   (write-bytes! root "absence/ea3bd73e.json" (.getBytes "meta" "UTF-8"))
+  (Files/deleteIfExists (.toPath (File. root dataset/manifest-name)))
   (dataset/write-manifest! root {:generated "2026-08-26T00:00:00Z"}))
 
 (defmacro with-dataset [[root] & body]
@@ -42,6 +43,26 @@
              (mapv :path (:entries manifest))))
       (is (= {:ok true :checked 3 :missing [] :size-mismatch [] :hash-mismatch [] :extras []}
              (dataset/verify root {:hash? true}))))))
+
+(deftest manifest-reader-rejects-unsorted-paths
+  (with-dataset [root]
+    (let [[envelope & entries] (str/split-lines (slurp (dataset/manifest-path root)))]
+      (spit (dataset/manifest-path root) (str (str/join "\n" (cons envelope (reverse entries))) "\n"))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not sorted" (dataset/read-manifest root)))
+      (is (thrown? clojure.lang.ExceptionInfo (dataset/verify root {:hash? true}))))))
+
+(deftest manifest-regeneration-requires-explicit-removal-intent
+  (doseq [path ["absence/2cf24dba.mp3" "absence/486ea462.jpeg" "absence/ea3bd73e.json" "text/song.md"]]
+    (with-dataset [root]
+      (write-bytes! root "text/song.md" (.getBytes "song" "UTF-8"))
+      (dataset/generate-manifest! root)
+      (let [before (slurp (dataset/manifest-path root))]
+        (Files/delete (.toPath (File. root path)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Refusing to remove" (dataset/generate-manifest! root)))
+        (is (= before (slurp (dataset/manifest-path root))))
+        (dataset/generate-manifest! root {:allow-removals? true})
+        (is (nil? (dataset/entry-for (dataset/read-manifest root) path)))
+        (is (:ok (dataset/verify root {:hash? true})))))))
 
 (deftest verification-detects-missing-size-hash-and-extra-files
   (with-dataset [root]
@@ -104,7 +125,7 @@
               path (str "nested/" (subs (dataset/sha256-of-file replacement) 0 8) ".json")]
           (write-bytes! root path (.getBytes "replacement" "UTF-8"))
           (Files/delete (.toPath replacement))
-          (dataset/generate-manifest! root)
+          (dataset/generate-manifest! root {:allow-removals? true})
           (dataset/mirror-metadata! repo root)
           (is (not (.exists (File. tracked retired))))
           (is (= "replacement" (slurp (File. tracked path))))
@@ -374,9 +395,10 @@
     (with-dataset [root]
       (let [outside (temp-dir)
             victim (File. outside "unrelated.txt")
-            manifest (File. (dataset/manifest-path root))]
+            manifest (File. (dataset/manifest-path root))
+            original (slurp manifest)]
         (try
-          (spit victim "unrelated")
+          (spit victim original)
           (Files/delete (.toPath manifest))
           (if (= :symlink link-kind)
             (Files/createSymbolicLink (.toPath manifest) (.toPath victim)
@@ -386,7 +408,7 @@
             (is (thrown? clojure.lang.ExceptionInfo (dataset/generate-manifest! root)))
             (do (dataset/generate-manifest! root)
                 (is (= 3 (count (:entries (dataset/read-manifest root)))))))
-          (is (= "unrelated" (slurp victim)))
+          (is (= original (slurp victim)))
           (finally
             (Files/deleteIfExists (.toPath manifest))
             (delete-tree! outside)))))))
