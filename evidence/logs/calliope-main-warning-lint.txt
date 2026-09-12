@@ -1,0 +1,2 @@
+test/calliope/classifier/adapters_test.clj:166:14: info: Single argument to str already is a string
+linting took 330ms, errors: 0, warnings: 0

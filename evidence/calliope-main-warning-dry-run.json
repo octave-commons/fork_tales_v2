@@ -1,0 +1,19 @@
+{
+  "id": "calliope-main-warning-dry-run",
+  "cwd": "/tmp/foresight-restore-calliope",
+  "argv": [
+    "clojure",
+    "-M:classify",
+    "--",
+    "--seed",
+    "3721599729",
+    "--dry-run"
+  ],
+  "start": "2026-09-12T08:50:31.802Z",
+  "end": "2026-09-12T08:50:35.974Z",
+  "seconds": 4.172,
+  "code": 0,
+  "signal": null,
+  "timeout": false,
+  "log": "/workspace/scratch/3655842e43cf/evidence/logs/calliope-main-warning-dry-run.log"
+}

@@ -1,0 +1,15 @@
+{
+  "id": "calliope-main-warning-test",
+  "cwd": "/tmp/foresight-restore-calliope",
+  "argv": [
+    "clojure",
+    "-M:test"
+  ],
+  "start": "2026-09-12T08:49:56.934Z",
+  "end": "2026-09-12T08:50:08.585Z",
+  "seconds": 11.651,
+  "code": 0,
+  "signal": null,
+  "timeout": false,
+  "log": "/workspace/scratch/3655842e43cf/evidence/logs/calliope-main-warning-test.log"
+}

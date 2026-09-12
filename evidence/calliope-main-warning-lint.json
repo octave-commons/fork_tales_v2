@@ -1,0 +1,17 @@
+{
+  "id": "calliope-main-warning-lint",
+  "cwd": "/tmp/foresight-restore-calliope",
+  "argv": [
+    "clj-kondo",
+    "--lint",
+    "src",
+    "test"
+  ],
+  "start": "2026-09-12T08:49:56.905Z",
+  "end": "2026-09-12T08:49:57.251Z",
+  "seconds": 0.346,
+  "code": 0,
+  "signal": null,
+  "timeout": false,
+  "log": "/workspace/scratch/3655842e43cf/evidence/logs/calliope-main-warning-lint.log"
+}

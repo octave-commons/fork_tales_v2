@@ -764,7 +764,7 @@
 
 (defn- ensure-feature!
   [state object feature-id]
-  (let [{:keys [runtime program producer-index cache dry-run?]} state
+  (let [{:keys [program producer-index cache dry-run?]} state
         producer-id (first (get producer-index feature-id))]
     (when-not producer-id
       (throw (ex-info "No extractor produces required feature."
