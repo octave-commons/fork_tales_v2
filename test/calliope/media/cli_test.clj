@@ -37,6 +37,21 @@
           (is (not (zero? (:exit (run! "verfiy")))))
           (is (zero? (:exit (run! "--help"))))
           (is (not (.exists log))))
+        (testing "remote grammar rejects typos, incomplete flags and extra values"
+          (doseq [command ["sync" "check"]
+                  args [["--remtoe" "fixture:media"] ["--remote"]
+                        ["--remote" "--ledger"] ["--remote" ""]
+                        ["--remote" "fixture:media" "extra"]
+                        ["--remote" "fixture:media" "--remote" "second:media"]]]
+            (is (not (zero? (:exit (apply run! command args)))))
+            (is (not (.exists log)) "Malformed remote arguments must never invoke rclone"))
+          (is (not (zero? (:exit (run! "verify" "--ledgre"))))))
+        (testing "invalid environment destinations cannot become a local path or option"
+          (doseq [value ["" "--help"]]
+            (let [result (shell/sh "bb" "--classpath" source (str script) "sync"
+                                   :dir repo :env (assoc env "CALLIOPE_MEDIA_REMOTE" value))]
+              (is (not (zero? (:exit result))))
+              (is (not (.exists log))))))
         (testing "intact files reach rclone"
           (let [result (run! "sync" "--remote" "fixture:media")]
             (is (zero? (:exit result)) (pr-str result))
@@ -85,6 +100,17 @@
             (let [result (run! "verify" "--ledger")]
               (is (not (zero? (:exit result))))
               (is (re-find #":hash-drift" (:out result)))))))
+        (testing "invalid ledger forms cannot terminate parsing before later receipts"
+          (fixture/dataset! root)
+          (let [ledger (File. repo "ledgers/ingest.edn")
+                entry (dataset/entry-for (dataset/read-manifest root) "absence/2cf24dba.mp3")
+                event (assoc entry :event/type :track/discovered :asset :mp3 :dest (:path entry))]
+            (doseq [invalid [nil false 7 [] {} {:event/type "invalid"}]]
+              (spit ledger (str (pr-str event) "\n" (pr-str invalid) "\n"
+                                (pr-str (assoc event :bytes 999)) "\n"))
+              (let [result (run! "verify" "--ledger")]
+                (is (not (zero? (:exit result))))
+                (is (re-find #"Invalid ledger event form" (:err result)))))))
         (testing "manifest regeneration cannot bless changed content-addressed bytes"
           (fixture/dataset! root)
           (let [before (slurp (dataset/manifest-path root))]

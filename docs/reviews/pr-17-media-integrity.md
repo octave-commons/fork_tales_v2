@@ -31,6 +31,8 @@ that legacy field, and none carries a full SHA-256.
 | Missing or mistyped commands exit successfully | Default CLI dispatch exits nonzero; explicit help remains successful | Real Babashka tests cover no command, a typo, and help without invoking rclone |
 | Incomplete roots silently shrink the catalog | Compare scanned paths with the previous manifest; require explicit `--allow-removals` to omit prior paths | JVM tests cover all content classes; real CLI and automatic ingestion preserve prior manifests on incomplete roots |
 | Readers accept noncanonical path order | Require manifest entries in ascending path order | Reversed, otherwise valid entries fail both reading and verification |
+| Remote option typos select the default destination | Validate complete command arguments and reject invalid remote values | Real sync/check tests reject typos, missing/duplicate flags, extra values and invalid environment destinations without invoking rclone |
+| A nil ledger form hides later receipts | Use a distinct EOF marker and require event maps with keyword types | Real CLI tests reject nil, false, scalars, vectors and malformed event maps before later contradictions can be skipped; all 94,041 historical forms remain compatible |
 
 The subsequent retirement-policy suggestion (`discussion_r3994218793`) was
 adjudicated without changing the verifier. Metadata mirroring reconciles a
@@ -52,7 +54,7 @@ rejects all symlinked write destinations and source/destination overlap.
 
 ## Verification
 
-- `clojure -M:test`: 112 tests, 640 assertions, zero failures and errors.
+- `clojure -M:test`: 112 tests, 681 assertions, zero failures and errors.
 - `clj-kondo --lint src/calliope/media src/calliope/law/media.cljc test/calliope/media test/calliope/law/media_test.clj test/calliope/test_runner.clj scripts/media.clj`: zero errors and warnings.
 - `clj-kondo --lint scripts/corpus.clj`: zero errors and warnings. Scripts are
   linted separately because they deliberately share the standalone `user` namespace.

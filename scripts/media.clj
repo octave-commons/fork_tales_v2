@@ -30,17 +30,34 @@
   (media/resolve-root repo-root (System/getenv media/env-var)))
 
 (defn remote-flag [args]
-  (let [[flag value] (drop-while #(not= "--remote" %) args)]
-    (when flag
-      (when-not value
-        (println "ERROR: --remote requires a value, e.g. --remote gdrive:calliope-media")
+  (when (seq args)
+    (let [[flag value] args]
+      (when-not (and (= 2 (count args)) (= "--remote" flag)
+                     (not (str/blank? value)) (not (str/starts-with? value "-")))
+        (println "ERROR: expected --remote <value>, e.g. --remote gdrive:calliope-media")
         (System/exit 1))
       value)))
 
+(defn validate-args! [command args]
+  (case command
+    ("sync" "check") (remote-flag args)
+    (let [allowed (case command
+                    "verify" #{"--no-hash" "--ledger"}
+                    "manifest" #{"--allow-removals"}
+                    #{})]
+      (when (seq (remove allowed args))
+        (println "ERROR: unexpected arguments for" command)
+        (usage)
+        (System/exit 1)))))
+
 (defn remote [args]
-  (or (remote-flag args)
-      (System/getenv "CALLIOPE_MEDIA_REMOTE")
-      "gdrive:calliope-media"))
+  (let [value (or (remote-flag args)
+                  (System/getenv "CALLIOPE_MEDIA_REMOTE")
+                  "gdrive:calliope-media")]
+    (when (or (str/blank? value) (str/starts-with? value "-"))
+      (println "ERROR: media remote must be a nonempty destination, not an option")
+      (System/exit 1))
+    value))
 
 (defn require-manifest! [root]
   (when-not (fs/exists? (media/manifest-path root))
@@ -104,9 +121,15 @@
                            (with-open [reader (java.io.PushbackReader.
                                               (java.io.FileReader.
                                                (str (fs/path repo-root "ledgers" "ingest.edn"))))]
-                             (loop [events []]
-                               (let [event (edn/read {:eof nil} reader)]
-                                 (if event (recur (conj events event)) events))))))
+                             (let [eof (Object.)]
+                               (loop [events []]
+                                 (let [event (edn/read {:eof eof} reader)]
+                                   (cond
+                                     (identical? eof event) events
+                                     (and (map? event) (keyword? (:event/type event)))
+                                     (recur (conj events event))
+                                     :else (throw (ex-info "Invalid ledger event form"
+                                                           {:form-index (inc (count events))})))))))))
           ledger-failure? (and ledger-report
                                (or (seq (:missing-from-manifest ledger-report))
                                    (seq (:bytes-drift ledger-report))
@@ -138,6 +161,7 @@
 
 (let [command (first *command-line-args*)
       args (rest *command-line-args*)]
+  (validate-args! command args)
   (case command
     "where" (where!)
     "assemble" (assemble!)
